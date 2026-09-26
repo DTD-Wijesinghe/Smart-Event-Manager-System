@@ -61,8 +61,19 @@ create table if not exists public.share_links (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.transcripts (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references public.events(id) on delete cascade,
+  session_id uuid references public.sessions(id) on delete cascade,
+  language text default 'auto',
+  model text not null,
+  text text not null,
+  created_at timestamptz not null default now()
+);
+
 alter table public.events enable row level security;
 alter table public.sessions enable row level security;
 alter table public.attendees enable row level security;
 alter table public.insights enable row level security;
 alter table public.share_links enable row level security;
+alter table public.transcripts enable row level security;
