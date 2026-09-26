@@ -1,0 +1,29 @@
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env")
+
+
+def origins(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()] or ["*"]
+
+
+class Settings:
+    app_host = os.getenv("APP_HOST", "0.0.0.0")
+    app_port = int(os.getenv("APP_PORT", "8000"))
+    api_prefix = os.getenv("API_PREFIX", "/api")
+    allowed_origins = origins(os.getenv("ALLOWED_ORIGINS", "*"))
+    project = os.getenv("GCP_PROJECT", "")
+    location = os.getenv("GCP_LOCATION", "global")
+    credentials_path = os.getenv("VERTEX_SERVICE_ACCOUNT_JSON", "")
+    text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+    batch_model = os.getenv("GEMINI_BATCH_MODEL", "gemini-3.5-transcribe")
+    live_model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.5-transcribe-live")
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_ANON_KEY", "")
+
+
+settings = Settings()
+FRONTEND_DIR = ROOT_DIR / "frontend"

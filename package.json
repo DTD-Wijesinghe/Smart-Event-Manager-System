@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.mjs",
-    "start": "node server.mjs"
+    "dev": "python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload",
+    "start": "python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
   }
 }
