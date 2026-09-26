@@ -74,6 +74,7 @@ document.addEventListener('click', async e => {
   const button = e.target.closest('.capture-launch');
   if (button) {
     e.preventDefault();
+    history.pushState({view: 'capture'}, '', `${location.pathname}${location.search}#capture`);
     e.stopImmediatePropagation();
     app.innerHTML = captureView();
     document.body.classList.remove('marketing');
@@ -122,3 +123,25 @@ document.addEventListener('submit', async e => {
     } catch (error) { notify(error.message); }
   }
 }, true);
+
+// Keep browser Back/Forward inside the single-page workspace.
+if (!history.state?.view) history.replaceState({view: state.view}, '', `${location.pathname}${location.search}#landing`);
+document.addEventListener('click', e => {
+  const target = e.target.closest('.nav-item:not(.capture-launch), [data-view-link]');
+  if (!target) return;
+  const next = target.dataset.view || target.dataset.viewLink;
+  if (!next || next === 'landing') return;
+  const route = next === 'auth' ? 'auth' : next;
+  history.pushState({view: route}, '', `${location.pathname}${location.search}#${route}`);
+}, true);
+window.addEventListener('popstate', () => {
+  const next = history.state?.view || 'landing';
+  state.view = next;
+  if (next === 'capture') {
+    app.innerHTML = captureView();
+    document.body.classList.remove('marketing');
+    document.body.classList.add('workspace-view');
+  } else {
+    render();
+  }
+});

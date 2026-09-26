@@ -15,6 +15,11 @@ def _headers() -> dict[str, str]:
 
 def _supabase_list(table: str) -> list[dict]:
     response = httpx.get(f"{settings.supabase_url}/rest/v1/{table}?select=*", headers=_headers(), timeout=20)
+    # A new Supabase project can be connected before its schema is applied.
+    # Keep the public workspace usable in that state and fall back to the
+    # local demo data until supabase/schema.sql has been run.
+    if response.status_code == 404:
+        return demo_store[table]
     response.raise_for_status()
     return response.json()
 
@@ -35,6 +40,8 @@ def create_session(payload: dict) -> dict:
     demo_store["sessions"].append(item)
     if storage_mode() == "supabase":
         response = httpx.post(f"{settings.supabase_url}/rest/v1/sessions", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=item, timeout=20)
+        if response.status_code == 404:
+            return item
         response.raise_for_status()
         return response.json()[0]
     return item
@@ -45,6 +52,8 @@ def create_transcript(payload: dict) -> dict:
     demo_store["transcripts"].insert(0, item)
     if storage_mode() == "supabase":
         response = httpx.post(f"{settings.supabase_url}/rest/v1/transcripts", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=item, timeout=20)
+        if response.status_code == 404:
+            return item
         response.raise_for_status()
         return response.json()[0]
     return item
