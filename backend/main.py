@@ -15,6 +15,13 @@ class SummaryRequest(BaseModel):
     targetLanguage: str = "English"
 
 
+class CaptureRequest(BaseModel):
+    text: str
+    session_id: str = "ses-001"
+    language: str = "auto"
+    speaker: str = "Live speaker"
+
+
 app = FastAPI(title="Smart Event Manager API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=settings.allowed_origins != ["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -50,6 +57,16 @@ def get_share_links() -> list[dict]: return list_items("share_links")
 
 @app.get(f"{settings.api_prefix}/transcripts")
 def get_transcripts() -> list[dict]: return list_items("transcripts")
+
+
+@app.post(f"{settings.api_prefix}/capture/text", status_code=201)
+def capture_text(request: CaptureRequest) -> dict:
+    """Accept a live text chunk from a browser, mixer bridge, or meeting bot."""
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Capture text is required")
+    saved = create_transcript({"text": text, "model": "manual-capture", "language": request.language, "session_id": request.session_id, "speaker": request.speaker})
+    return {"transcript": saved, "captured": True, "mode": storage_mode()}
 
 
 @app.post(f"{settings.api_prefix}/ai/summarize")

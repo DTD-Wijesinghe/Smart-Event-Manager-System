@@ -62,5 +62,16 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/insights`
 - `GET /api/share-links`
 - `GET /api/transcripts`
+- `POST /api/capture/text` — save a live text chunk from a browser, venue bridge, or meeting bot
 - `POST /api/ai/summarize`
 - `POST /api/transcription/batch`
+
+## Snapsight-style event workflow
+
+1. Capture: connect a venue mixer to the operator laptop, upload a recording, or send live text chunks to `/api/capture/text`.
+2. Understand: use batch transcription, live transcript, language selection, and Gemini summaries to turn the source into takeaways.
+3. Distribute: show the event QR/link so attendees can open the browser portal without installing an app.
+4. Remix: use the Content Studio to prepare executive briefs, attendee recaps, speaker packs, and social-ready moments.
+5. Prove value: use sessions, attendee signals, insights, share-link clicks, and reports to show what resonated.
+
+For the Supabase-backed workspace, run `supabase/schema.sql` in the Supabase SQL Editor before enabling the service-role variables. The public landing page and demo capture flow remain usable while the database is unavailable.

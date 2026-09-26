@@ -62,3 +62,63 @@ document.addEventListener('click', async e => { const nav=e.target.closest('.nav
 document.addEventListener('submit', async e => { if(e.target.id==='session-form'){e.preventDefault(); const payload=Object.fromEntries(new FormData(e.target)); await api('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); document.querySelector('.modal-backdrop')?.remove(); state.data=await api('/api/dashboard'); state.view='sessions'; render(); notify('Session added to the program'); return;} if(e.target.id==='login-form'){e.preventDefault();state.authenticated=true;await openWorkspace('Welcome back — organizer workspace ready');return} if(e.target.id==='register-form'){e.preventDefault();const f=new FormData(e.target);if(f.get('password')!==f.get('confirm')){notify('Passwords do not match');return}state.authenticated=true;await openWorkspace('Workspace created — welcome to Smart Event Manager');return} if(e.target.id==='forgot-form'){e.preventDefault();notify('If the email exists, a reset link is on its way');return} });
 document.querySelector('#mobileMenu').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
 load();
+
+// Capture is intentionally mounted as a workflow overlay so it remains usable
+// even while the organizer dashboard is waiting for Supabase data.
+function captureView() { return `${head('Live content engine', 'Capture the room', 'Connect an audio source, upload a recording, or paste a live text chunk. Every capture becomes searchable event intelligence.', '<span class="badge orange">● READY TO CAPTURE</span>')}
+<div class="capture-grid"><section class="card capture-card"><div class="capture-card-top"><div><span class="capture-icon">◉</span><h2>Live capture</h2><p>Use your laptop microphone or mixer feed. This browser capture is ideal for a quick test; production audio can come from your venue mixer or meeting bot.</p></div><span class="capture-status" id="capture-status">Idle</span></div><div class="capture-controls"><button class="btn lime" data-capture-action="start">Start microphone</button><button class="btn ghost" data-capture-action="stop" disabled>Stop</button></div><div class="capture-meter"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><small class="muted">Use headphones and ask the speaker for consent before capturing.</small></section>
+<section class="card capture-card"><div class="capture-card-top"><div><span class="capture-icon">↥</span><h2>Upload a recording</h2><p>Drop MP3, WAV, M4A, or MP4 files for batch transcription and post-event synthesis.</p></div></div><form id="upload-form" class="upload-form"><label class="upload-drop"><input type="file" name="file" accept="audio/*,video/mp4" required><strong>Choose a recording</strong><span>Up to 20 MB in this starter workspace</span></label><select name="language"><option value="auto">Detect language</option><option>English</option><option>Tamil</option><option>Spanish</option><option>French</option><option>Japanese</option></select><button class="btn purple">Transcribe recording ↗</button></form></section></div>
+<section class="card section-card capture-text-card"><div class="card-head"><div><h2>Live text bridge</h2><p class="muted">Use this to test the end-to-end flow before connecting a venue mixer or meeting integration.</p></div><span class="badge">No app required for attendees</span></div><form id="capture-form" class="capture-form"><textarea name="text" rows="4" required placeholder="Paste a short live excerpt, for example: Our biggest opportunity is making the next action obvious for every attendee."></textarea><div class="capture-form-row"><input name="speaker" placeholder="Speaker name (optional)" value="Live speaker"><select name="language"><option value="auto">Auto language</option><option>English</option><option>Tamil</option><option>Spanish</option><option>French</option></select><button class="btn lime">Add live capture</button></div></form></section>`; }
+
+document.addEventListener('click', async e => {
+  const button = e.target.closest('.capture-launch');
+  if (button) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    app.innerHTML = captureView();
+    document.body.classList.remove('marketing');
+    document.body.classList.add('workspace-view');
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item === button));
+    return;
+  }
+  const captureAction = e.target.closest('[data-capture-action]')?.dataset.captureAction;
+  if (!captureAction) return;
+  e.preventDefault();
+  if (captureAction === 'start') {
+    if (!navigator.mediaDevices?.getUserMedia) return notify('Microphone capture is unavailable in this browser');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      window.__captureStream = stream;
+      document.querySelector('#capture-status').textContent = 'Listening';
+      document.querySelector('[data-capture-action="start"]').disabled = true;
+      document.querySelector('[data-capture-action="stop"]').disabled = false;
+      notify('Microphone connected — use the live text bridge to save a verified capture');
+    } catch (_) { notify('Microphone permission was not granted'); }
+  } else if (captureAction === 'stop') {
+    window.__captureStream?.getTracks().forEach(track => track.stop());
+    document.querySelector('#capture-status').textContent = 'Idle';
+    document.querySelector('[data-capture-action="start"]').disabled = false;
+    document.querySelector('[data-capture-action="stop"]').disabled = true;
+    notify('Microphone stopped');
+  }
+}, true);
+
+document.addEventListener('submit', async e => {
+  if (e.target.id === 'capture-form') {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    try {
+      await api('/api/capture/text', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({text: form.get('text'), speaker: form.get('speaker'), language: form.get('language')}) });
+      e.target.reset();
+      notify('Live capture saved to the event stream');
+    } catch (error) { notify(error.message); }
+  }
+  if (e.target.id === 'upload-form') {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    try {
+      const result = await api('/api/transcription/batch', { method: 'POST', body: form });
+      notify(`Recording transcribed with ${result.model || 'the configured model'}`);
+    } catch (error) { notify(error.message); }
+  }
+}, true);

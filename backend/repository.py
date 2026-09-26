@@ -41,7 +41,7 @@ def create_session(payload: dict) -> dict:
 
 
 def create_transcript(payload: dict) -> dict:
-    item = {"id": f"trn-{len(demo_store['transcripts']) + 1:03d}", "event_id": payload.get("event_id", "evt-001"), "session_id": payload.get("session_id", "ses-001"), "language": payload.get("language", "auto"), "model": payload.get("model", ""), "text": payload.get("text", ""), "created_at": utc_now()}
+    item = {"id": f"trn-{len(demo_store['transcripts']) + 1:03d}", "event_id": payload.get("event_id", "evt-001"), "session_id": payload.get("session_id", "ses-001"), "language": payload.get("language", "auto"), "model": payload.get("model", ""), "text": payload.get("text", ""), "speaker": payload.get("speaker", "Live speaker"), "created_at": utc_now()}
     demo_store["transcripts"].insert(0, item)
     if storage_mode() == "supabase":
         response = httpx.post(f"{settings.supabase_url}/rest/v1/transcripts", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=item, timeout=20)
