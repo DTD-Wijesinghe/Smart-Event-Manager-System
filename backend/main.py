@@ -72,8 +72,11 @@ def capture_text(request: CaptureRequest) -> dict:
 @app.post(f"{settings.api_prefix}/ai/summarize")
 def create_summary(request: SummaryRequest) -> dict:
     if not request.text.strip(): raise HTTPException(status_code=400, detail="Transcript text is required")
-    try: return summarize(request.text, request.targetLanguage)
-    except Exception as exc: raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        return summarize(request.text, request.targetLanguage)
+    except Exception:
+        source = request.text.strip().replace("\n", " ")
+        return {"model": "local-fallback", "targetLanguage": request.targetLanguage, "mode": "fallback", "output": f"Summary\n{source[:360]}\n\nKey signals\n• Capture the strongest themes from the session.\n• Turn the next action into a clear attendee takeaway.\n\nAction items\n• Review the source transcript with the event team.\n• Approve the best quote before publishing.\n\nSocial post\nA strong event moment is ready to carry forward: {source[:180]}"}
 
 
 @app.post(f"{settings.api_prefix}/transcription/batch")

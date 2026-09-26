@@ -145,3 +145,24 @@ window.addEventListener('popstate', () => {
     render();
   }
 });
+
+function showGeneratedContent(result) {
+  document.querySelector('.generated-output')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop generated-output"><div class="modal generated-modal"><div class="eyebrow">${result.mode === 'fallback' ? 'Local content preview' : 'Gemini content intelligence'}</div><h2>Generated content</h2><p class="muted">${result.mode === 'fallback' ? 'The local preview is ready. Add valid Vertex credentials to replace it with Gemini output.' : `Generated with ${esc(result.model || 'Gemini')}.`}</p><pre>${esc(result.output || 'No content was returned.')}</pre><div class="modal-actions"><button class="btn lime" data-action="close-generated">Done</button></div></div></div>`);
+}
+document.addEventListener('click', async e => {
+  const generate = e.target.closest('[data-action="generate"]');
+  if (generate) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const source = (state.data?.insights || []).map(item => `${item.title}: ${item.body}`).join('\n') || 'No transcript is available yet. Explain how an event team should prepare useful post-event takeaways.';
+    generate.disabled = true;
+    try {
+      const result = await api('/api/ai/summarize', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source,targetLanguage:'English'})});
+      showGeneratedContent(result);
+    } catch (error) { notify(error.message); }
+    finally { generate.disabled = false; }
+    return;
+  }
+  if (e.target.closest('[data-action="close-generated"]')) e.target.closest('.generated-output')?.remove();
+}, true);
