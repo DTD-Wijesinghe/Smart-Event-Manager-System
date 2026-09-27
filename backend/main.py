@@ -1438,7 +1438,9 @@ async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(
         saved = create_transcript(capture)
         insight = create_insight(capture)
         return {**result, "transcript": saved, "insight": insight}
-    except Exception as exc: raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Batch transcription failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Transcription is temporarily unavailable. Check the server AI configuration and retry.") from exc
 
 
 @app.exception_handler(Exception)
