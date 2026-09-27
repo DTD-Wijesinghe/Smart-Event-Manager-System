@@ -113,6 +113,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/analyst/conversations?event_id=...` - list saved analyst conversations
 - `GET /api/analyst/conversations/{conversation_id}/messages` - load questions, answers, and evidence citations
 - `GET /api/content/assets`
+- `GET /api/content/assets/{asset_id}/export?format=markdown|json|txt` - download a generated content asset
 - `GET /api/reports?event_id=...` - list grounded strategic reports for an event
 - `POST /api/reports/generate` - generate an evidence-linked report from selected event/session data
 - `GET /api/reports/{report_id}/export?format=markdown|json` - download a report

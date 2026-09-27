@@ -957,6 +957,28 @@ def get_generated_assets(event_id: str | None = None, session_id: str | None = N
     return [asset for asset in assets if (not event_id or asset.get("event_id") == event_id) and (not session_id or asset.get("session_id") == session_id)]
 
 
+@app.get(f"{settings.api_prefix}/content/assets/{{asset_id}}/export", response_model=None)
+def export_content_asset(asset_id: str, format: str = "markdown"):
+    asset = next((row for row in list_items("generated_assets") if row.get("id") == asset_id), None)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Content asset not found")
+    normalized = format.lower()
+    if normalized not in {"markdown", "json", "txt"}:
+        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, or txt")
+    content = asset.get("content") if isinstance(asset.get("content"), dict) else {"output": asset.get("content", "")}
+    title = asset.get("title") or "Generated event asset"
+    safe_name = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "event-asset"
+    filename = f"{safe_name}.{normalized if normalized != 'markdown' else 'md'}"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if normalized == "json":
+        return JSONResponse(content=asset, headers=headers)
+    output = str(content.get("output") or content.get("body") or "").strip()
+    if normalized == "txt":
+        return PlainTextResponse(output, media_type="text/plain", headers=headers)
+    body = f"# {title}\n\n- **Type:** {asset.get('asset_type', 'content')}\n- **Status:** {asset.get('status', 'draft')}\n\n{output}\n"
+    return PlainTextResponse(body, media_type="text/markdown", headers=headers)
+
+
 @app.get(f"{settings.api_prefix}/reports")
 def get_reports(event_id: str | None = None) -> list[dict]:
     return list_reports(event_id)
