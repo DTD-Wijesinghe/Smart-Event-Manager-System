@@ -763,8 +763,21 @@ async function mountTopicCloud() {
   try {
     const topics = await api(attendeeApi(`/api/topics?event_id=${encodeURIComponent(state.data?.event?.id || '')}&session_id=${encodeURIComponent(activeSessionId())}`));
     const cloud = document.querySelector('#topic-cloud');
-    if (cloud) cloud.innerHTML = topics.length ? topics.map(topic => `<button class="btn ghost" data-topic-label="${esc(topic.label)}" style="font-size:${Math.round(11 + topic.weight * 9)}px">${esc(topic.label)} <small>${topic.count}</small></button>`).join('') : '<span class="muted">Topic signals will appear after the first capture.</span>';
+    if (cloud) {
+      cloud.innerHTML = topics.length ? topics.map(topic => `<button class="btn ghost" data-topic-label="${esc(topic.label)}" style="font-size:${Math.round(11 + topic.weight * 9)}px">${esc(topic.label)} <small>${topic.count}</small></button>`).join('') : '<span class="muted">Topic signals will appear after the first capture.</span>';
+      cloud.querySelectorAll('[data-topic-label]').forEach(button => button.addEventListener('click', () => showTopicEvidence(button.dataset.topicLabel)));
+    }
   } catch (error) { const cloud = document.querySelector('#topic-cloud'); if (cloud) cloud.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
+
+async function showTopicEvidence(topic) {
+  if (!topic) return;
+  const evidence = document.querySelector('#topic-evidence');
+  if (evidence) evidence.innerHTML = '<div class="muted">Finding supporting passages…</div>';
+  try {
+    const results = await api(`/api/search?query=${encodeURIComponent(topic)}&event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    if (evidence) evidence.innerHTML = results.slice(0, 4).map(result => `<div class="insight"><span class="kind">${esc(result.type)} · ${esc(result.session_title || result.session_id || '')}</span><p>${esc(result.snippet)}</p></div>`).join('') || '<div class="muted">No supporting passage found.</div>';
+  } catch (error) { if (evidence) evidence.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
 }
 async function mountAudienceData() {
   if (state.view !== 'attendee' || document.querySelector('.audience-data-panel')) return;
@@ -881,12 +894,7 @@ document.addEventListener('click', async event => {
   const topic = event.target.closest('[data-topic-label]')?.dataset.topicLabel;
   if (!topic) return;
   event.preventDefault();
-  const evidence = document.querySelector('#topic-evidence');
-  if (evidence) evidence.innerHTML = '<div class="muted">Finding supporting passages…</div>';
-  try {
-    const results = await api(`/api/search?query=${encodeURIComponent(topic)}&event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
-    if (evidence) evidence.innerHTML = results.slice(0, 4).map(result => `<div class="insight"><span class="kind">${esc(result.type)} · ${esc(result.session_title || result.session_id || '')}</span><p>${esc(result.snippet)}</p></div>`).join('') || '<div class="muted">No supporting passage found.</div>';
-  } catch (error) { if (evidence) evidence.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
+  await showTopicEvidence(topic);
 }, true);
 
 document.addEventListener('click', async event => {
