@@ -358,7 +358,7 @@ def _create_item(table: str, item: dict) -> dict:
     if storage_mode() == "supabase":
         if table == "events":
             if not item.get("organization_id") or str(item.get("organization_id")).startswith("org-"): return item
-            remote_item = {key: value for key, value in item.items() if key not in {"id", "name"}}
+            remote_item = {key: item[key] for key in ("organization_id", "slug", "description", "starts_at", "ends_at", "timezone", "venue", "event_type", "banner_url", "default_language", "translation_languages", "privacy", "status") if item.get(key) is not None}
             remote_item["title"] = item.get("name") or item.get("title") or "New event"
             return _remote_insert("events", remote_item) or item
         if table == "invitations":
