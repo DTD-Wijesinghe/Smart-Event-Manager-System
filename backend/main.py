@@ -12,6 +12,8 @@ import hashlib
 import hmac
 import secrets
 import time
+import base64
+import json
 from typing import Any
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -66,13 +68,33 @@ def _demo_password_matches(password: str, stored: str) -> bool:
 
 
 def _demo_session(email: str) -> dict:
-    access = secrets.token_urlsafe(32)
-    refresh = secrets.token_urlsafe(32)
     user = next((item for item in demo_store.setdefault("auth_users", []) if item.get("email") == email), {})
     role = user.get("role", "organization_admin")
+    access = _demo_signed_token({"type": "access", "email": email, "role": role, "exp": int(time.time()) + 3600})
+    refresh = _demo_signed_token({"type": "refresh", "email": email, "exp": int(time.time()) + 2592000})
     demo_store.setdefault("auth_sessions", {})[access] = {"email": email, "role": role, "refresh_token": refresh}
     demo_store.setdefault("auth_refresh_tokens", {})[refresh] = email
     return {"access_token": access, "refresh_token": refresh, "token_type": "bearer", "user": {"email": email, "role": role}}
+
+
+def _demo_signed_token(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()).decode().rstrip("=")
+    signature = hmac.new(settings.demo_session_secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    return f"demo.{body}.{signature}"
+
+
+def _demo_token_payload(token: str, token_type: str) -> dict | None:
+    try:
+        prefix, body, signature = token.split(".", 2)
+        if prefix != "demo" or not hmac.compare_digest(signature, hmac.new(settings.demo_session_secret.encode(), body.encode(), hashlib.sha256).hexdigest()):
+            return None
+        padded = body + "=" * (-len(body) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+        if payload.get("type") != token_type or int(payload.get("exp", 0)) <= int(time.time()):
+            return None
+        return payload
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
 
 
 class SummaryRequest(BaseModel):
@@ -291,6 +313,10 @@ async def protect_api(request, call_next):
         if not settings.supabase_url:
             session = demo_store.setdefault("auth_sessions", {}).get(token)
             if not session:
+                signed = _demo_token_payload(token, "access")
+                if signed:
+                    session = {"email": signed["email"], "role": signed.get("role", "organization_admin")}
+            if not session:
                 return JSONResponse(status_code=401, content={"detail": "Organizer session is invalid or expired"})
             role = session.get("role", "organization_admin")
         else:
@@ -407,6 +433,9 @@ def refresh_session(request: RefreshRequest) -> dict:
         raise HTTPException(status_code=400, detail="Refresh token is required")
     if not settings.supabase_url or not settings.supabase_anon_key:
         email = demo_store.setdefault("auth_refresh_tokens", {}).get(request.refresh_token)
+        if not email:
+            signed = _demo_token_payload(request.refresh_token, "refresh")
+            email = signed.get("email") if signed else None
         if not email:
             raise HTTPException(status_code=401, detail="Refresh session is invalid or expired")
         return {"mode": "demo", "session": _demo_session(email)}

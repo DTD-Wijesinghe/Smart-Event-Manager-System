@@ -29,6 +29,7 @@ class Settings:
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_ANON_KEY", "")
     data_dir = Path(os.getenv("DATA_DIR", str(ROOT_DIR / "data")))
     max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "20"))
+    demo_session_secret = os.getenv("DEMO_SESSION_SECRET", "smart-event-manager-demo-session-v1")
 
 
 settings = Settings()
