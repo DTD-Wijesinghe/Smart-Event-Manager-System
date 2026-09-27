@@ -58,7 +58,7 @@ def create_processing_job(payload: dict) -> dict:
 
 
 def update_processing_job(job_id: str, **changes: object) -> dict:
-    job = next((item for item in demo_store["processing_jobs"] if item.get("id") == job_id), None)
+    job = next((item for item in list_items("processing_jobs") if item.get("id") == job_id), None)
     if not job:
         raise KeyError("Processing job not found")
     job.update({key: value for key, value in changes.items() if value is not None})
@@ -74,10 +74,12 @@ def update_processing_job(job_id: str, **changes: object) -> dict:
 
 
 def delete_file(file_id: str) -> dict:
-    index = next((index for index, item in enumerate(demo_store["files"]) if item.get("id") == file_id), None)
-    if index is None:
+    files = list_items("files")
+    removed = next((item for item in files if item.get("id") == file_id), None)
+    if removed is None:
         raise KeyError("File not found")
-    removed = demo_store["files"].pop(index)
+    if str(file_id).startswith("file-"):
+        demo_store["files"][:] = [item for item in demo_store["files"] if item.get("id") != file_id]
     if storage_mode() == "supabase" and not str(file_id).startswith("file-"):
         response = httpx.delete(f"{settings.supabase_url}/rest/v1/files?id=eq.{file_id}", headers=_headers(), timeout=20)
         if response.status_code != 404:
