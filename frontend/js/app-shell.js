@@ -51,6 +51,7 @@ async function load() {
       const shared = await api(`/api/public/share/${encodeURIComponent(shareToken)}`);
       state.data = {event: shared.event || null, sessions: shared.sessions || [], share_links: shared.link ? [shared.link] : [], attendees: [], insights: [], transcripts: [], analytics: {}, mode: 'public'};
       state.view = 'attendee';
+      history.replaceState({view: 'attendee'}, '', `${location.pathname}?share=${encodeURIComponent(shareToken)}#attendee`);
     } else {
       state.data = await api('/api/dashboard');
       if (state.authenticated) state.view = 'overview';

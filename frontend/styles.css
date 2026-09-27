@@ -10,7 +10,9 @@
 :where(.poll-response-form){display:grid;gap:9px;margin-top:12px}.poll-option{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:#fafaf7;color:var(--ink);font-size:12px;font-weight:700}.poll-option:hover{border-color:var(--purple);background:#f4f2ff}.poll-option input{accent-color:var(--purple)}.compact-actions{gap:5px}.compact-actions .btn{padding:7px 9px;font-size:10px}
 :where(.session-picker){display:grid;gap:6px;margin:15px 0 0;color:var(--muted);font-size:10px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}.session-picker select{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fafaf7;color:var(--ink);font:inherit;font-size:12px;letter-spacing:0;text-transform:none}
 :where(.asset-item){display:grid;gap:7px}.asset-item small{display:block}.asset-item details{margin:7px 0}.asset-item summary{cursor:pointer;color:var(--purple);font-size:11px;font-weight:800}.asset-item pre{white-space:pre-wrap;max-height:220px;overflow:auto;background:#fafaf7;border:1px solid var(--line);border-radius:10px;padding:12px;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--ink)}
-/* Readability and form alignment overrides */
+/* Readability, form alignment, and public-portal overflow overrides */
+html,body{max-width:100%;overflow-x:hidden}
+.attendee-view,.screen-view{max-width:100%;overflow-x:hidden}
 .form-grid label{display:grid;gap:7px;min-width:0}
 .form-grid .capture-form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;margin:0}
 .form-grid .capture-form-row label{width:100%}
@@ -106,3 +108,33 @@
 @keyframes signalBreathe{from{transform:scaleY(.72);opacity:.7}to{transform:scaleY(1);opacity:1}}
 @keyframes orbitSpin{to{transform:rotate(360deg)}}
 @media(max-width:800px){.marketing .landing-nav{padding:20px}.marketing .landing-hero{padding:58px 20px 70px;min-height:780px}.marketing .hero-copy h1{font-size:clamp(64px,18vw,110px)}.marketing .hero-visual{width:100%;height:390px;right:0;bottom:25px}.marketing .visual-card{inset:13% 4% 9% 8%}.marketing .landing-strip{overflow:hidden;white-space:nowrap;justify-content:flex-start}.marketing .landing-section{padding:85px 20px}.marketing .landing-section-head h2{font-size:clamp(58px,17vw,105px)}.marketing .landing-flow,.marketing .platform-grid,.marketing .case-grid{grid-template-columns:1fr}.marketing .landing-flow article{min-height:300px}.marketing .landing-cta{margin:0 20px 75px;padding:45px 28px}.marketing .landing-footer{padding:0 20px 30px}}
+/* Responsive hardening for login, attendee and big-screen modes. */
+.screen-view,.attendee-view,.auth-view,.screen-content,.attendee-hero,.attendee-card,.auth-art,.auth-card{min-width:0}
+.screen-top .brand,.attendee-brand{min-width:0;overflow-wrap:anywhere}
+.screen-content h1,.attendee-hero h1,.auth-art h1{overflow-wrap:anywhere;word-break:normal}
+.screen-signal i{transform-origin:bottom;animation:screenSignal 1.8s ease-in-out infinite alternate}
+.screen-signal i:nth-child(2n){animation-delay:-.7s}.screen-signal i:nth-child(3n){animation-delay:-1.2s}
+.attendee-card,.auth-card{animation:softRise .7s cubic-bezier(.2,.8,.2,1) both}
+.attendee-tiles article{animation:softRise .7s cubic-bezier(.2,.8,.2,1) both}.attendee-tiles article:nth-child(2){animation-delay:.1s}.attendee-tiles article:nth-child(3){animation-delay:.2s}
+.auth-art h1,.screen-content h1,.attendee-hero h1{animation:softRise .65s cubic-bezier(.2,.8,.2,1) both}
+@keyframes screenSignal{from{transform:scaleY(.55);opacity:.55}to{transform:scaleY(1);opacity:1}}
+@keyframes softRise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){
+  .attendee-view,.screen-view{margin:-22px -16px 0;padding:18px 16px 30px;min-height:calc(100vh - 60px)}
+  .attendee-nav,.screen-top{align-items:flex-start;flex-wrap:wrap;row-gap:14px}
+  .attendee-nav .attendee-live,.screen-top>span:last-child{width:100%;order:3}
+  .attendee-nav .btn{margin-left:auto}
+  .attendee-hero{margin:42px auto 42px;gap:24px;align-items:stretch}
+  .attendee-hero h1{font-size:clamp(39px,12vw,64px);line-height:.92;margin:13px 0 18px}
+  .attendee-hero p{font-size:15px;line-height:1.55}
+  .attendee-card{border-radius:14px;width:100%}
+  .translation-row{flex-wrap:wrap}.translation-row select{margin-left:0;flex:1;min-width:120px}.translation-row .btn{flex:1}
+  .attendee-tiles{gap:10px}.attendee-tiles article{padding:18px}.attendee-tiles h3{margin:14px 0 6px}
+  .attendee-footer{margin-top:25px;overflow-wrap:anywhere}
+  .screen-view{padding-top:18px}.screen-top{font-size:9px;letter-spacing:.08em}.screen-top .brand{font-size:12px}.screen-top .logo{width:30px;height:30px}
+  .screen-content{margin:54px auto 0}.screen-content h1{font-size:clamp(39px,13vw,72px);line-height:.9;margin:14px 0 16px;max-width:100%}.screen-content p{font-size:16px;line-height:1.45;margin:0;max-width:100%}
+  .screen-signal{height:68px;gap:3px;margin:28px 0}.screen-signal i{min-height:12px;border-radius:3px 3px 0 0}
+  .screen-bottom{display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding-top:15px;line-height:1.45}.screen-bottom .btn{margin-top:0;width:100%;text-align:center}
+  .auth-view{margin:-22px -16px 0;min-height:calc(100vh - 60px);display:flex;flex-direction:column}.auth-art{padding:48px 24px 34px;min-height:auto;flex:0 0 auto}.auth-art h1{font-size:clamp(44px,13vw,70px);line-height:.9;margin:16px 0}.auth-art p{font-size:15px;line-height:1.5}.auth-orbit{width:300px;height:300px;right:-160px;top:14%;opacity:.75}.auth-proof{position:relative;left:auto;right:auto;bottom:auto;margin-top:28px;line-height:1.5;flex-wrap:wrap}.auth-card{margin:18px 16px 28px;width:calc(100% - 32px);padding:18px}.auth-form h2{font-size:25px}.auth-tabs{overflow:auto;white-space:nowrap}.auth-tab{flex:0 0 auto}
+}
+@media(prefers-reduced-motion:reduce){.screen-signal i,.attendee-card,.auth-card,.attendee-tiles article,.auth-art h1,.screen-content h1,.attendee-hero h1,.marketing *{animation:none!important;transition:none!important}}
