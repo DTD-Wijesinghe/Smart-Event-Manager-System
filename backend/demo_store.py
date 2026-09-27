@@ -53,7 +53,7 @@ demo_store = {
     "ai_messages": [],
     "files": [],
     "processing_jobs": [],
-    "auth_users": [],
+    "auth_users": [{"id": "user-demo-owner", "email": "daniduwijesinghe11@gmail.com", "password_hash": "pbkdf2$310000$e8a6b85a40b4a1e46b0ba90432bb9edd$1ef17a2838fd481244a110af722100373790adf86ca2952c1aaec7a607842aec", "role": "organization_admin"}],
     "auth_sessions": {},
     "auth_refresh_tokens": {},
     "auth_reset_tokens": {},
