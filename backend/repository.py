@@ -416,7 +416,7 @@ def _create_item(table: str, item: dict) -> dict:
 def create_event(payload: dict) -> dict:
     number = len(demo_store["events"]) + 1
     organization_id = payload.get("organization_id") or next((item.get("id") for item in list_items("organizations")), "org-demo")
-    item = {"id": f"evt-{number:03d}", "organization_id": organization_id, "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
+    item = {"id": f"evt-{number:03d}", "organization_id": organization_id, "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "description": payload.get("description", ""), "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "timezone": payload.get("timezone", "UTC"), "event_type": payload.get("event_type", "conference"), "banner_url": payload.get("banner_url", ""), "default_language": payload.get("default_language", "en"), "translation_languages": payload.get("translation_languages") or ["en"], "privacy": payload.get("privacy", "public"), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
     return _create_item("events", item)
 
 
