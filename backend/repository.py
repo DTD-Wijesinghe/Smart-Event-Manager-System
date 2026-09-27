@@ -232,11 +232,11 @@ def _default_foreign_keys(payload: dict) -> tuple[str, str]:
 
 def create_session(payload: dict) -> dict:
     event_id, _ = _default_foreign_keys(payload)
-    item = {"id": f"ses-{len(demo_store['sessions']) + 1:03d}", "event_id": event_id, "title": payload.get("title") or "New session", "track": payload.get("track") or "New track", "room": payload.get("room") or "TBD", "speaker": payload.get("speaker") or "TBD", "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": "upcoming", "attendance": 0, "sentiment": .8, "summary": "Session brief will appear after the first live signals."}
+    item = {"id": f"ses-{len(demo_store['sessions']) + 1:03d}", "event_id": event_id, "title": payload.get("title") or "New session", "track": payload.get("track") or "New track", "room": payload.get("room") or "TBD", "speaker": payload.get("speaker") or "TBD", "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "spoken_language": payload.get("spoken_language") or "en", "translation_languages": payload.get("translation_languages") or ["en"], "session_type": payload.get("session_type") or "live", "meeting_url": payload.get("meeting_url") or "", "tags": payload.get("tags") or [], "status": payload.get("status") or "upcoming", "attendance": 0, "sentiment": .8, "summary": payload.get("summary") or "Session brief will appear after the first live signals."}
     demo_store["sessions"].append(item)
     if storage_mode() == "supabase":
-        remote_item = {key: item[key] for key in ("event_id", "title", "starts_at", "ends_at", "room", "track") if item.get(key) is not None}
-        remote_item["status"] = "scheduled"
+        remote_item = {key: item[key] for key in ("event_id", "title", "starts_at", "ends_at", "room", "track", "spoken_language", "translation_languages", "session_type", "meeting_url", "tags") if item.get(key) is not None}
+        remote_item["status"] = "scheduled" if item.get("status") == "upcoming" else item.get("status")
         remote_item["description"] = item.get("summary", "")
         return _remote_insert("sessions", remote_item) or item
     return item
@@ -248,7 +248,7 @@ def update_session(session_id: str, payload: dict) -> dict:
         raise KeyError("Session not found")
     session.update({key: value for key, value in payload.items() if value is not None})
     if storage_mode() == "supabase" and not str(session_id).startswith("ses-"):
-        remote = {key: value for key, value in payload.items() if value is not None and key not in {"id", "speaker", "attendance", "sentiment", "status"}}
+        remote = {key: value for key, value in payload.items() if value is not None and key not in {"id", "speaker", "attendance", "sentiment", "status", "summary"}}
         if "status" in payload:
             remote["status"] = "scheduled" if payload["status"] == "upcoming" else payload["status"]
         if "summary" in payload:
