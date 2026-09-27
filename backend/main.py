@@ -983,7 +983,7 @@ def _safe_upload_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", base)[:160] or "upload"
 
 
-async def _process_upload(file_record: dict, job: dict, raw: bytes, language: str, vocabulary: list[str] | None = None) -> None:
+async def _process_upload(file_record: dict, job: dict, enrichment_job: dict, raw: bytes, language: str, vocabulary: list[str] | None = None) -> None:
     try:
         update_processing_job(job["id"], status="running", progress=10, attempts=int(job.get("attempts") or 0) + 1)
         suffix = Path(file_record["original_name"]).suffix.lower()
@@ -999,16 +999,30 @@ async def _process_upload(file_record: dict, job: dict, raw: bytes, language: st
         if not text.strip():
             raise ValueError("The uploaded file did not contain readable transcript text")
         capture = {"text": text, "model": model, "language": language, "session_id": file_record["session_id"], "speaker": "Uploaded recording"}
-        create_transcript(capture)
+        transcript = create_transcript(capture)
         create_insight(capture)
-        update_file(file_record["id"], status="completed")
         update_processing_job(job["id"], status="completed", progress=100, error_message=None)
+        update_processing_job(enrichment_job["id"], status="running", progress=15, attempts=int(enrichment_job.get("attempts") or 0) + 1)
+        try:
+            result = summarize(text, language if language != "auto" else "English")
+            enrichment_mode = result.get("model", "configured-ai")
+            output = result.get("output", "")
+        except Exception:
+            enrichment_mode = "local-grounded"
+            output = f"Overview\n{text[:360]}\n\nMain Discussion Points\n• {text[:240]}\n\nImportant Insights\n• Review the uploaded evidence with the event team.\n\nDecisions\n• Not captured\n\nRecommendations\n• Confirm next actions from this recording.\n\nQuestions Raised\n• Not captured\n\nAction Items\n• Review the transcript and assign an owner.\n\nNotable Quotes\n• Not captured\n\nTopics\n• Not captured\n\nPeople / Organizations Mentioned\n• Not captured"
+        update_processing_job(enrichment_job["id"], status="running", progress=65)
+        summary = save_summary({"event_id": file_record.get("event_id"), "session_id": file_record["session_id"], "language": language if language != "auto" else "English", "content": {"output": output, "sections": ["overview", "main_discussion_points", "important_insights", "decisions", "recommendations", "questions_raised", "action_items", "notable_quotes", "topics"], "evidence": [{"id": transcript.get("id"), "speaker": transcript.get("speaker"), "timestamp": transcript.get("created_at"), "snippet": text[:240]}]}, "model": enrichment_mode})
+        create_takeaway({"event_id": file_record.get("event_id"), "session_id": file_record["session_id"], "title": "Uploaded recording signal", "body": text[:360], "confidence": .74, "evidence": [{"id": transcript.get("id"), "session_id": file_record["session_id"]}]})
+        update_processing_job(enrichment_job["id"], status="completed", progress=100, error_message=None)
+        update_file(file_record["id"], status="completed")
     except Exception as exc:
         try:
             update_file(file_record["id"], status="failed")
         except (KeyError, ValueError):
             pass
         update_processing_job(job["id"], status="failed", progress=100, error_message=str(exc))
+        if enrichment_job:
+            update_processing_job(enrichment_job["id"], status="failed", progress=100, error_message=str(exc))
 
 
 @app.post(f"{settings.api_prefix}/files/upload", status_code=202)
@@ -1037,9 +1051,10 @@ async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = Fil
         storage_path = str(destination)
     file_record = create_file({"event_id": event_id, "session_id": session_id, "original_name": file.filename or "upload", "storage_path": storage_path, "mime_type": content_type, "size_bytes": len(raw), "status": "processing"})
     job = create_processing_job({"event_id": event_id, "session_id": session_id, "job_type": "transcription", "status": "queued", "progress": 0})
+    enrichment_job = create_processing_job({"event_id": event_id, "session_id": session_id, "job_type": "ai_enrichment", "status": "queued", "progress": 0})
     terms = [item.strip() for item in re.split(r"[,\n]", vocabulary) if item.strip()][:80]
-    background_tasks.add_task(_process_upload, file_record, job, raw, language, terms)
-    return {"file": file_record, "job": job, "status": "queued"}
+    background_tasks.add_task(_process_upload, file_record, job, enrichment_job, raw, language, terms)
+    return {"file": file_record, "job": job, "jobs": [job, enrichment_job], "status": "queued"}
 
 
 @app.get(f"{settings.api_prefix}/files")

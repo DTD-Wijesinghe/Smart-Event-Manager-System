@@ -1466,15 +1466,18 @@ document.addEventListener('submit', async e => {
       state.data = await api('/api/dashboard');
       if (status) status.textContent = `Queued ${result.file?.original_name || 'upload'} for background transcription.`;
       notify('Upload queued — processing has started');
+      const trackedJobs = result.jobs || (result.job ? [result.job] : []);
       const pollJob = async (attempt = 0) => {
-        if (attempt > 12 || !result.job?.id) return;
+        if (attempt > 20 || !trackedJobs.length) return;
         try {
           const jobs = await api(`/api/processing-jobs?session_id=${encodeURIComponent(activeSessionId())}`);
-          const job = jobs.find(item => item.id === result.job.id);
-          if (status && job) status.textContent = `${result.file?.original_name || 'Upload'} · ${job.status} · ${job.progress}%`;
-          if (job && !['completed', 'failed'].includes(job.status)) return window.setTimeout(() => pollJob(attempt + 1), 1000);
-          if (job?.status === 'completed') { state.data = await api('/api/dashboard'); notify('Upload processed and added to the event stream'); }
-          if (job?.status === 'failed') notify(job.error_message || 'Upload processing failed');
+          const current = trackedJobs.map(item => jobs.find(job => job.id === item.id)).filter(Boolean);
+          const active = current.find(job => !['completed', 'failed'].includes(job.status));
+          if (status && current.length) status.textContent = `${result.file?.original_name || 'Upload'} · ${current.map(job => `${job.job_type} ${job.status} ${job.progress}%`).join(' · ')}`;
+          if (active) return window.setTimeout(() => pollJob(attempt + 1), 1000);
+          const failed = current.find(job => job.status === 'failed');
+          if (failed) notify(failed.error_message || 'Upload processing failed');
+          else { state.data = await api('/api/dashboard'); notify('Upload transcription and AI enrichment completed'); }
         } catch (error) { if (status) status.textContent = error.message; }
       };
       pollJob();
