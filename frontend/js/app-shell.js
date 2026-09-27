@@ -734,7 +734,31 @@ document.addEventListener('submit', async event => {
     notify('Password updated. You can now log in.');
   } catch (error) { notify(error.message); }
 }, true);
+document.addEventListener('click', async e => {
+  const button = e.target.closest('[data-action="download-qr"]');
+  if (!button) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  try {
+    const response = await fetch(button.dataset.qrUrl);
+    if (!response.ok) throw new Error('QR download failed');
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a'); link.href = url; link.download = 'smart-event-manager-qr.png'; link.click();
+    URL.revokeObjectURL(url);
+    notify('QR code downloaded');
+  } catch (_) {
+    window.open(button.dataset.qrUrl, '_blank', 'noopener,noreferrer');
+    notify('QR code opened in a new tab');
+  }
+}, true);
 document.addEventListener('click', e => { const button=e.target.closest('[data-action="export"]'); if(!button)return; e.preventDefault(); e.stopImmediatePropagation(); const rows=state.view==='attendees'?state.data?.attendees:state.data?.sessions; downloadCsv(`${state.view}-export.csv`,rows); }, true);
+
+function mountQrDownload() {
+  const wrap = document.querySelector('.connect-grid .qr-wrap');
+  const image = wrap?.querySelector('img.qr-image');
+  if (!wrap || !image || wrap.querySelector('[data-action="download-qr"]')) return;
+  wrap.insertAdjacentHTML('afterbegin', `<button class="btn ghost" data-action="download-qr" data-qr-url="${esc(image.src)}">↓ Download QR</button>`);
+}
 
 // Capture is intentionally mounted as a workflow overlay so it remains usable
 // even while the organizer dashboard is waiting for Supabase data.
@@ -1256,7 +1280,7 @@ document.addEventListener('submit', async event => {
   } catch (error) { notify(error.message); }
 }, true);
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountQrDownload(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
