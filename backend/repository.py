@@ -3,7 +3,7 @@ import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
-TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "attendees", "insights", "share_links", "transcripts", "takeaways", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "files", "processing_jobs"}
+TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "insights", "share_links", "transcripts", "transcript_segments", "translations", "takeaways", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs"}
 
 
 def storage_mode() -> str:
@@ -175,8 +175,8 @@ def _remote_insert(table: str, item: dict) -> dict | None:
     # The dashboard may temporarily be rendering local demo rows while a new
     # Supabase project has no seed data. Never send those readable demo IDs to
     # UUID foreign-key columns; keep the action local until real rows exist.
-    foreign_keys = ("organization_id", "event_id", "session_id", "poll_id", "option_id")
-    if any(str(item.get(key, "")).startswith(("org-", "evt-", "ses-", "poll-", "q-")) for key in foreign_keys if item.get(key)):
+    foreign_keys = ("organization_id", "event_id", "session_id", "poll_id", "option_id", "asset_id", "speaker_id")
+    if any(str(item.get(key, "")).startswith(("org-", "evt-", "ses-", "poll-", "q-", "asset-", "speaker-")) for key in foreign_keys if item.get(key)):
         return None
     payload = {key: value for key, value in item.items() if key != "id"}
     response = httpx.post(f"{settings.supabase_url}/rest/v1/{table}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=payload, timeout=20)
@@ -258,9 +258,28 @@ def create_transcript(payload: dict) -> dict:
     event_id, session_id = _default_foreign_keys(payload)
     item = {"id": f"trn-{len(demo_store['transcripts']) + 1:03d}", "event_id": event_id, "session_id": session_id, "language": payload.get("language", "auto"), "model": payload.get("model", ""), "text": payload.get("text", ""), "speaker": payload.get("speaker", "Live speaker"), "created_at": utc_now()}
     demo_store["transcripts"].insert(0, item)
+    segment = {"id": f"seg-{len(demo_store['transcript_segments']) + 1:04d}", "session_id": session_id, "speaker": payload.get("speaker", "Live speaker"), "text": payload.get("text", ""), "language": payload.get("language", "auto"), "start_time_ms": payload.get("start_time_ms"), "end_time_ms": payload.get("end_time_ms"), "confidence": payload.get("confidence"), "source": payload.get("source", "live"), "created_at": item["created_at"]}
+    item["segment_id"] = segment["id"]
+    demo_store["transcript_segments"].insert(0, segment)
     if storage_mode() == "supabase":
-        return _remote_insert("transcripts", item) or item
-    return item
+        saved = _remote_insert("transcripts", {key: value for key, value in item.items() if key != "segment_id"}) or item
+        _remote_insert("transcript_segments", {key: value for key, value in segment.items() if key != "speaker"})
+        return saved
+    return {**item, "segment_id": segment["id"]}
+
+
+def list_transcript_segments(session_id: str | None = None) -> list[dict]:
+    return [item for item in list_items("transcript_segments") if not session_id or item.get("session_id") == session_id]
+
+
+def create_translation(payload: dict) -> dict:
+    segment_id = payload.get("transcript_segment_id")
+    item = {"id": f"translation-{len(demo_store['translations']) + 1:04d}", "transcript_segment_id": segment_id, "language": payload.get("language", "English"), "text": payload.get("text", ""), "created_at": utc_now()}
+    existing = next((row for row in list_items("translations") if row.get("transcript_segment_id") == segment_id and row.get("language") == item["language"]), None)
+    if existing:
+        existing.update({"text": item["text"], "created_at": item["created_at"]})
+        return existing
+    return _create_item("translations", item)
 
 
 def create_insight(payload: dict) -> dict:
@@ -336,6 +355,74 @@ def create_event(payload: dict) -> dict:
     organization_id = payload.get("organization_id") or next((item.get("id") for item in list_items("organizations")), "org-demo")
     item = {"id": f"evt-{number:03d}", "organization_id": organization_id, "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
     return _create_item("events", item)
+
+
+def create_speaker(payload: dict) -> dict:
+    organization_id = payload.get("organization_id") or next((item.get("id") for item in list_items("organizations")), "org-demo")
+    name = str(payload.get("name", "")).strip()
+    if len(name) < 2:
+        raise ValueError("Speaker name is required")
+    item = {"id": f"speaker-{len(demo_store['speakers']) + 1:03d}", "organization_id": organization_id, "name": name, "title": str(payload.get("title", "")).strip(), "company": str(payload.get("company", "")).strip(), "biography": str(payload.get("biography", "")).strip(), "photo_url": str(payload.get("photo_url", "")).strip(), "profile_url": str(payload.get("profile_url", "")).strip(), "created_at": utc_now()}
+    return _create_item("speakers", item)
+
+
+def update_speaker(speaker_id: str, payload: dict) -> dict:
+    speaker = next((item for item in list_items("speakers") if item.get("id") == speaker_id), None)
+    if not speaker:
+        raise KeyError("Speaker not found")
+    speaker.update({key: value for key, value in payload.items() if value is not None})
+    if storage_mode() == "supabase" and not str(speaker_id).startswith("speaker-"):
+        fields = {key: value for key, value in payload.items() if key in {"name", "title", "company", "biography", "photo_url", "profile_url"} and value is not None}
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/speakers?id=eq.{speaker_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=fields, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return rows[0]
+    return speaker
+
+
+def delete_speaker(speaker_id: str) -> dict:
+    speaker = next((item for item in list_items("speakers") if item.get("id") == speaker_id), None)
+    if not speaker:
+        raise KeyError("Speaker not found")
+    if str(speaker_id).startswith("speaker-"):
+        demo_store["speakers"][:] = [item for item in demo_store["speakers"] if item.get("id") != speaker_id]
+        demo_store["session_speakers"][:] = [item for item in demo_store["session_speakers"] if item.get("speaker_id") != speaker_id]
+    elif storage_mode() == "supabase":
+        response = httpx.delete(f"{settings.supabase_url}/rest/v1/speakers?id=eq.{speaker_id}", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+    return {"deleted": True, "speaker": speaker}
+
+
+def list_session_speakers(session_id: str) -> list[dict]:
+    relations = [item for item in list_items("session_speakers") if item.get("session_id") == session_id]
+    speakers = {item.get("id"): item for item in list_items("speakers")}
+    return [{**speakers[relation.get("speaker_id")], "sort_order": relation.get("sort_order", 0)} for relation in relations if relation.get("speaker_id") in speakers]
+
+
+def assign_session_speaker(session_id: str, speaker_id: str, sort_order: int = 0) -> dict:
+    if not any(item.get("id") == session_id for item in list_items("sessions")):
+        raise KeyError("Session not found")
+    if not any(item.get("id") == speaker_id for item in list_items("speakers")):
+        raise KeyError("Speaker not found")
+    if any(item.get("session_id") == session_id and item.get("speaker_id") == speaker_id for item in list_items("session_speakers")):
+        return {"session_id": session_id, "speaker_id": speaker_id, "sort_order": sort_order}
+    return _create_item("session_speakers", {"id": f"session-speaker-{len(demo_store['session_speakers']) + 1:04d}", "session_id": session_id, "speaker_id": speaker_id, "sort_order": sort_order})
+
+
+def unassign_session_speaker(session_id: str, speaker_id: str) -> dict:
+    relation = next((item for item in list_items("session_speakers") if item.get("session_id") == session_id and item.get("speaker_id") == speaker_id), None)
+    if not relation:
+        raise KeyError("Speaker is not assigned to this session")
+    if str(relation.get("id", "")).startswith("session-speaker-"):
+        demo_store["session_speakers"][:] = [item for item in demo_store["session_speakers"] if item.get("id") != relation.get("id")]
+    elif storage_mode() == "supabase":
+        response = httpx.delete(f"{settings.supabase_url}/rest/v1/session_speakers?session_id=eq.{session_id}&speaker_id=eq.{speaker_id}", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+    return {"deleted": True, "session_id": session_id, "speaker_id": speaker_id}
 
 
 def team_workspace(organization_id: str | None = None) -> dict:
@@ -527,7 +614,39 @@ def create_feedback(payload: dict) -> dict:
 def create_generated_asset(payload: dict) -> dict:
     event_id, session_id = _default_foreign_keys(payload)
     item = {"id": f"asset-{len(demo_store['generated_assets']) + 1:03d}", "event_id": event_id, "session_id": session_id, "asset_type": payload.get("asset_type", "attendee_recap"), "title": payload.get("title", "Generated event asset"), "content": payload.get("content", {}), "status": payload.get("status", "draft"), "created_at": utc_now()}
-    return _create_item("generated_assets", item)
+    saved = _create_item("generated_assets", item)
+    create_asset_version({"asset_id": saved.get("id"), "title": saved.get("title"), "content": saved.get("content", {}), "version": 1})
+    return saved
+
+
+def create_asset_version(payload: dict) -> dict:
+    asset_id = payload.get("asset_id")
+    versions = [item for item in list_items("generated_asset_versions") if item.get("asset_id") == asset_id]
+    version = int(payload.get("version") or (max([int(item.get("version") or 0) for item in versions], default=0) + 1))
+    item = {"id": f"asset-version-{len(demo_store['generated_asset_versions']) + 1:04d}", "asset_id": asset_id, "version": version, "title": payload.get("title", "Generated asset"), "content": payload.get("content", {}), "created_at": utc_now()}
+    return _create_item("generated_asset_versions", item)
+
+
+def list_asset_versions(asset_id: str) -> list[dict]:
+    return sorted([item for item in list_items("generated_asset_versions") if item.get("asset_id") == asset_id], key=lambda item: int(item.get("version") or 0), reverse=True)
+
+
+def update_generated_asset(asset_id: str, payload: dict) -> dict:
+    asset = next((item for item in list_items("generated_assets") if item.get("id") == asset_id), None)
+    if not asset:
+        raise KeyError("Generated asset not found")
+    title = payload.get("title") if payload.get("title") is not None else asset.get("title")
+    content = payload.get("content") if payload.get("content") is not None else asset.get("content", {})
+    create_asset_version({"asset_id": asset_id, "title": title, "content": content})
+    asset.update({"title": title, "content": content, "status": payload.get("status") or asset.get("status", "draft"), "updated_at": utc_now()})
+    if storage_mode() == "supabase" and not str(asset_id).startswith("asset-"):
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/generated_assets?id=eq.{asset_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json={"title": title, "content": content, "status": asset.get("status")}, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return rows[0]
+    return asset
 
 
 def create_takeaway(payload: dict) -> dict:
@@ -535,6 +654,17 @@ def create_takeaway(payload: dict) -> dict:
     evidence = payload.get("evidence") or []
     item = {"id": f"takeaway-{len(demo_store['takeaways']) + 1:03d}", "event_id": event_id, "session_id": session_id, "title": payload.get("title") or "Event takeaway", "body": payload.get("body", "").strip(), "confidence": payload.get("confidence", .85), "evidence": evidence, "created_at": utc_now()}
     return _create_item("takeaways", item)
+
+
+def create_report(payload: dict) -> dict:
+    event_id, session_id = _default_foreign_keys(payload)
+    source_session_ids = payload.get("source_session_ids") or ([session_id] if session_id else [])
+    item = {"id": f"report-{len(demo_store['reports']) + 1:04d}", "event_id": event_id, "title": payload.get("title") or "Event intelligence report", "report_type": payload.get("report_type", "executive_brief"), "format": payload.get("format", "markdown"), "source_session_ids": source_session_ids, "content": payload.get("content") or {}, "status": payload.get("status", "completed"), "created_at": utc_now(), "updated_at": utc_now()}
+    return _create_item("reports", item)
+
+
+def list_reports(event_id: str | None = None) -> list[dict]:
+    return [item for item in list_items("reports") if not event_id or item.get("event_id") == event_id]
 
 
 def analytics(event_id: str = "evt-001") -> dict:
@@ -549,6 +679,33 @@ def analytics(event_id: str = "evt-001") -> dict:
     assets = [item for item in list_items("generated_assets") if not event_id or item.get("event_id") == event_id]
     poll_responses = list_items("poll_responses")
     return {"event_id": event_id, "sessions": len(sessions), "attendees": sum(item.get("attendance", 0) for item in sessions), "transcripts": len(transcripts), "questions": len(questions), "poll_responses": len(poll_responses), "feedback_responses": len(feedback), "generated_assets": len(assets), "average_session_rating": round(sum(ratings) / len(ratings), 2) if ratings else None}
+
+
+def event_intelligence(event_id: str | None = None) -> dict:
+    """Build an event-wide, evidence-linked intelligence snapshot."""
+    events = list_items("events")
+    event = next((row for row in events if row.get("id") == event_id), None) if event_id else (events[0] if events else None)
+    selected_id = event.get("id") if event else event_id
+    sessions = [row for row in list_items("sessions") if not selected_id or row.get("event_id") == selected_id]
+    session_ids = {row.get("id") for row in sessions}
+    transcripts = [row for row in list_items("transcripts") if row.get("session_id") in session_ids]
+    insights = [row for row in list_items("insights") if row.get("session_id") in session_ids or row.get("event_id") == selected_id]
+    takeaways = [row for row in list_items("takeaways") if row.get("session_id") in session_ids or row.get("event_id") == selected_id]
+    questions = [row for row in list_items("questions") if row.get("session_id") in session_ids]
+    topics = topic_cloud(selected_id)
+    session_intelligence = []
+    for session in sessions:
+        session_rows = [row for row in transcripts if row.get("session_id") == session.get("id")]
+        session_topics = topic_cloud(selected_id, session.get("id"))[:8]
+        evidence = [{"id": row.get("id"), "speaker": row.get("speaker"), "timestamp": row.get("created_at"), "snippet": (row.get("text") or "")[:240]} for row in session_rows[:5]]
+        session_intelligence.append({"session_id": session.get("id"), "title": session.get("title"), "track": session.get("track"), "status": session.get("status"), "transcript_count": len(session_rows), "topics": session_topics, "evidence": evidence})
+    cross_session = []
+    for topic in topics:
+        related = [item for item in session_intelligence if any(t.get("label") == topic.get("label") for t in item.get("topics", []))]
+        if len(related) > 1:
+            cross_session.append({"topic": topic.get("label"), "frequency": topic.get("count", 0), "sessions": [{"session_id": item["session_id"], "title": item["title"], "track": item["track"]} for item in related], "evidence": topic.get("evidence", [])[:5]})
+    question_themes = [{"id": row.get("id"), "session_id": row.get("session_id"), "status": row.get("status"), "body": row.get("body", ""), "votes": row.get("votes", 0)} for row in questions]
+    return {"event": event, "mode": "grounded-local", "sessions": session_intelligence, "themes": topics, "cross_session_themes": cross_session[:20], "takeaways": takeaways[:20], "insights": insights[:20], "questions": question_themes[:50], "source_counts": {"sessions": len(sessions), "transcripts": len(transcripts), "insights": len(insights), "takeaways": len(takeaways), "questions": len(questions)}}
 
 
 def search_knowledge(query: str, event_id: str | None = None) -> list[dict]:

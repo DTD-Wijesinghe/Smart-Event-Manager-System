@@ -168,7 +168,7 @@ document.addEventListener('click', async e => { const action=e.target.closest('[
 document.addEventListener('submit', async e => { const form=e.target; if(!['login-form','register-form','forgot-form'].includes(form.id))return; e.preventDefault(); e.stopImmediatePropagation(); const fields=Object.fromEntries(new FormData(form)); try { if(form.id==='register-form' && fields.password!==fields.confirm) throw new Error('Passwords do not match'); const endpoint=form.id==='login-form'?'/api/auth/login':form.id==='register-form'?'/api/auth/register':'/api/auth/forgot-password'; const payload=form.id==='forgot-form'?{email:fields.email}:{email:fields.email,password:fields.password}; const result=await api(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); if(form.id==='forgot-form'){notify('If the email exists, a reset link is on its way');return} state.authenticated=true; localStorage.setItem('smart-event-session',JSON.stringify(result.session||{})); await openWorkspace(form.id==='login-form'?'Welcome back - organizer workspace ready':'Workspace created - welcome to Smart Event Manager'); } catch(error){notify(error.message)} }, true);
 function sessionEditModal(session) { document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Program builder</div><h2>Edit session</h2><p>Changes are saved to the active event workspace.</p><form class="form-grid" id="session-edit-form"><input type="hidden" name="session_id" value="${esc(session.id)}"><label>Session title<input name="title" required value="${esc(session.title || '')}"></label><label>Track<select name="track"><option ${session.track==='Main stage'?'selected':''}>Main stage</option><option ${session.track==='Leadership'?'selected':''}>Leadership</option><option ${session.track==='Growth'?'selected':''}>Growth</option></select></label><label>Speaker<input name="speaker" value="${esc(session.speaker || '')}"></label><label>Room<input name="room" value="${esc(session.room || '')}"></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Save changes</button></div></form></div></div>`); }
 document.querySelector('#mobileMenu').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
-document.addEventListener('change', async e => { const selector=e.target.closest('.transcript-toolbar select'); if(!selector)return; const language=(selector.value||'English').split(' ')[0]; if(language==='English')return notify('Original English transcript selected'); const source=[...document.querySelectorAll('.transcript-card p')].map(item=>item.textContent).join('\n'); const status=document.querySelector('#translation-status'); if(status)status.textContent='Translating…'; try{const result=await api('/api/ai/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:source,targetLanguage:language})}); let output=document.querySelector('.translation-output'); if(!output){document.querySelector('.transcript-card')?.insertAdjacentHTML('afterbegin','<div class="translation-output insight"></div>');output=document.querySelector('.translation-output')} output.innerHTML=`<span class="kind">${esc(result.targetLanguage)} translation</span><p>${esc(result.output)}</p>`; if(status)status.textContent=result.mode==='fallback'?'Local preview':'Live'; }catch(error){if(status)status.textContent=error.message} });
+document.addEventListener('change', async e => { const selector=e.target.closest('.transcript-toolbar select'); if(!selector)return; const language=(selector.value||'English').split(' ')[0]; if(language==='English')return notify('Original English transcript selected'); const lines=[...document.querySelectorAll('.transcript-card .transcript-line')]; const source=lines.map(item=>item.querySelector('p')?.textContent || '').filter(Boolean).join('\n'); const status=document.querySelector('#translation-status'); if(status)status.textContent='Translating…'; try{let result; const sessionId=activeSessionId(); let segments=lines.map(item=>item.dataset.segmentId).filter(Boolean); if(!segments.length){const rows=await api(`/api/transcript-segments?session_id=${encodeURIComponent(sessionId)}`); segments=rows.slice(-lines.length).map(row=>row.id);} if(segments.length){const saved=[]; for(const segmentId of segments){const line=lines.find(item=>item.dataset.segmentId===segmentId)?.querySelector('p')?.textContent || source; saved.push(await api(`/api/transcript-segments/${encodeURIComponent(segmentId)}/translate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:line,targetLanguage:language})}));} result={targetLanguage:language,output:saved.map(item=>item.output).join('\n'),mode:saved.some(item=>item.mode==='live')?'live':'fallback'};}else{result=await api('/api/ai/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:source,targetLanguage:language})});} let output=document.querySelector('.translation-output'); if(!output){document.querySelector('.transcript-card')?.insertAdjacentHTML('afterbegin','<div class="translation-output insight"></div>');output=document.querySelector('.translation-output')} output.innerHTML=`<span class="kind">${esc(result.targetLanguage)} translation</span><p>${esc(result.output)}</p>`; if(status)status.textContent=result.mode==='fallback'?'Local preview':'Saved'; }catch(error){if(status)status.textContent=error.message} });
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-question-moderate]');
   if (!button) return;
@@ -226,6 +226,45 @@ document.addEventListener('submit', async event => {
     render();
     notify('Session updated');
   } catch (error) { notify(error.message); }
+}, true);
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="notifications"], [data-action="help"], [data-action="share-social"]');
+  if (!button) return;
+  const action = button.dataset.action;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (action === 'notifications') {
+    document.querySelector('.modal-backdrop')?.remove();
+    document.body.insertAdjacentHTML('beforeend', '<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Workspace activity</div><h2>Notifications</h2><div class="insight-list"><article class="insight"><span class="kind">LIVE</span><strong>Event intelligence is ready</strong><p>New transcript signals will appear in the dashboard as your session runs.</p></article><article class="insight"><span class="kind">CONTENT</span><strong>Reports stay evidence-linked</strong><p>Generated reports can be downloaded from Content Studio.</p></article></div><div class="modal-actions"><button type="button" class="btn lime" data-action="close-modal">Done</button></div></div></div>');
+    return;
+  }
+  if (action === 'help') {
+    document.querySelector('.modal-backdrop')?.remove();
+    document.body.insertAdjacentHTML('beforeend', '<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Smart Event Manager</div><h2>Quick help</h2><p>Capture a live text or recording, review the transcript, generate grounded takeaways, then create reports or share the attendee portal.</p><div class="insight-list"><div class="insight"><span class="kind">LIVE</span><strong>Start with Capture</strong><p>Use browser audio, upload a file, or send a text chunk from an event bridge.</p></div><div class="insight"><span class="kind">REMIX</span><strong>Open Content Studio</strong><p>Generate versioned assets and export evidence-linked reports.</p></div></div><div class="modal-actions"><button type="button" class="btn lime" data-action="close-modal">Close</button></div></div></div>');
+    return;
+  }
+  const eventName = state.data?.event?.name || 'Smart Event Manager event';
+  const shareUrl = `${location.origin}/attendee/${state.data?.event?.slug || 'event'}`;
+  const shareData = {title: eventName, text: `Join ${eventName} live`, url: shareUrl};
+  try { if (navigator.share) await navigator.share(shareData); else { await navigator.clipboard?.writeText(shareUrl); notify('Event link copied — ready to share'); } } catch (_) { notify('Sharing was cancelled'); }
+}, true);
+
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('#report-form');
+  if (!form) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const fields = Object.fromEntries(new FormData(form));
+  const button = form.querySelector('button[type="submit"], button:not([type])');
+  if (button) button.disabled = true;
+  try {
+    await api('/api/reports/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...fields, event_id:state.data?.event?.id || null})});
+    document.querySelector('.report-studio')?.remove();
+    await mountReportStudio();
+    notify('Grounded event report generated');
+  } catch (error) { notify(error.message); }
+  finally { if (button) button.disabled = false; }
 }, true);
 document.addEventListener('change', async event => {
   const picker = event.target.closest('#attendee-session-select');
@@ -477,7 +516,7 @@ function mountTranscriptData() {
   if (!rows.length) return;
   const card = document.querySelector('.transcript-card');
   if (!card) return;
-  card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small></div>`).join('');
+  card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}" data-segment-id="${esc(row.segment_id || '')}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small></div>`).join('');
 }
 async function refreshLiveTranscript() {
   if (state.view !== 'transcript') return;
@@ -518,8 +557,17 @@ async function mountAssetLibrary() {
     const assets = await api(`/api/content/assets?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
     state.assets = assets;
     const list = document.querySelector('#asset-list');
-    if (list) list.innerHTML = assets.length ? assets.map(asset => { const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; return `<article class="insight asset-item"><span class="kind">${esc(asset.asset_type || 'content')} · ${esc(asset.status || 'draft')}</span><strong>${esc(asset.title || 'Generated asset')}</strong><small class="muted">${asset.created_at ? date(asset.created_at) : 'Saved now'}</small><details><summary>View content</summary><pre>${esc(output)}</pre></details><button class="btn ghost" data-action="copy-asset" data-asset-id="${esc(asset.id)}">Copy content</button></article>`; }).join('') : '<span class="muted">No generated assets yet. Create a brief or recap above.</span>';
+    if (list) list.innerHTML = assets.length ? assets.map(asset => { const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; return `<article class="insight asset-item"><span class="kind">${esc(asset.asset_type || 'content')} · ${esc(asset.status || 'draft')}</span><strong>${esc(asset.title || 'Generated asset')}</strong><small class="muted">${asset.created_at ? date(asset.created_at) : 'Saved now'}</small><details><summary>View content</summary><pre>${esc(output)}</pre></details><div class="actions-row compact-actions"><button class="btn ghost" data-action="copy-asset" data-asset-id="${esc(asset.id)}">Copy content</button><button class="btn ghost" data-action="edit-asset" data-asset-id="${esc(asset.id)}">Edit version</button></div></article>`; }).join('') : '<span class="muted">No generated assets yet. Create a brief or recap above.</span>';
   } catch (error) { const list = document.querySelector('#asset-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
+async function mountReportStudio() {
+  if (state.view !== 'content' || document.querySelector('.report-studio')) return;
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card report-studio"><div class="card-head"><div><h2>Strategic reports</h2><p class="muted">Create an evidence-linked brief from the active event, then export it as Markdown or JSON.</p></div><span class="badge">Grounded output</span></div><form id="report-form" class="form-grid"><div class="capture-form-row"><label>Report type<select name="report_type"><option value="executive_brief">Executive brief</option><option value="full_event_summary">Full event summary</option><option value="sponsor_report">Sponsor report</option><option value="topic_analysis">Topic analysis</option><option value="engagement_report">Engagement report</option></select></label><label>Format<select name="format"><option value="markdown">Markdown</option><option value="json">JSON</option></select></label></div><label>Title<input name="title" value="Event intelligence report" required></label><button class="btn lime">Generate report ↗</button></form><div id="report-list" class="insight-list"><span class="muted">Loading reports…</span></div></section>');
+  try {
+    const reports = await api(`/api/reports?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    const list = document.querySelector('#report-list');
+    if (list) list.innerHTML = reports.length ? reports.map(report => `<article class="insight"><span class="kind">${esc(report.report_type)} · ${esc(report.status)}</span><strong>${esc(report.title)}</strong><small class="muted">${report.source_session_ids?.length || 0} source sessions · ${report.created_at ? date(report.created_at) : 'Saved now'}</small><div class="actions-row compact-actions"><a class="btn ghost" href="/api/reports/${encodeURIComponent(report.id)}/export?format=markdown">Download Markdown</a><a class="btn ghost" href="/api/reports/${encodeURIComponent(report.id)}/export?format=json">View JSON</a></div></article>`).join('') : '<span class="muted">No reports yet. Generate the first event brief above.</span>';
+  } catch (error) { const list = document.querySelector('#report-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 async function mountTakeawayPanel() {
   if (state.view !== 'content' || document.querySelector('.takeaway-panel')) return;
@@ -591,8 +639,19 @@ function mountLiveMetrics() {
   const live = state.data.sessions.find(session => session.status === 'live');
   [stats.attendees, live?.attendance || 0, stats.transcripts + stats.questions, stats.average_session_rating ? `${Math.round(stats.average_session_rating * 20)}%` : '—'].forEach((value, index) => { if (cards[index]) cards[index].textContent = typeof value === 'number' ? money(value) : value; });
 }
+async function mountEventIntelligence() {
+  if (state.view !== 'overview' || document.querySelector('.event-intelligence-panel')) return;
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card event-intelligence-panel"><div class="card-head"><div><div class="eyebrow">Cross-session intelligence</div><h2>What the whole event is saying</h2><p class="muted">Grounded themes, evidence, and relationships across every session.</p></div><span class="badge">Evidence linked</span></div><div id="event-intelligence-content" class="grid insight-grid"><span class="muted">Reading the event knowledge layer…</span></div></section>');
+  try {
+    const intelligence = await api(`/api/intelligence?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    const themes = (intelligence.themes || []).slice(0, 8).map(topic => `<span class="badge">${esc(topic.label)} · ${topic.count}</span>`).join(' ') || '<span class="muted">Capture more sessions to reveal recurring themes.</span>';
+    const relationships = (intelligence.cross_session_themes || []).slice(0, 4).map(item => `<article class="insight"><span class="kind">${esc(item.topic)} · ${item.frequency} signals</span><strong>${item.sessions.map(session => esc(session.title)).join(' ↔ ')}</strong><small class="muted">${item.evidence?.[0]?.snippet ? esc(item.evidence[0].snippet) : 'Evidence will appear as sessions are captured.'}</small></article>`).join('') || '<span class="muted">Cross-session relationships will appear after shared themes are captured.</span>';
+    const target = document.querySelector('#event-intelligence-content');
+    if (target) target.innerHTML = `<div><div class="eyebrow">Top themes</div><div class="actions-row">${themes}</div></div><div><div class="eyebrow">Connections across rooms</div><div class="insight-list">${relationships}</div></div>`;
+  } catch (error) { const target = document.querySelector('#event-intelligence-content'); if (target) target.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
@@ -811,6 +870,15 @@ document.addEventListener('click', async event => {
 }, true);
 
 document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="edit-asset"]');
+  if (!button) return;
+  event.preventDefault();
+  const asset = state.assets.find(item => item.id === button.dataset.assetId);
+  if (!asset) return notify('Asset is no longer available');
+  const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || '';
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop asset-editor"><div class="modal"><div class="eyebrow">Content studio · versioned edit</div><h2>Edit generated asset</h2><p class="muted">Save a new version while keeping the current content attached to the event.</p><form id="asset-edit-form" class="form-grid" data-asset-id="${esc(asset.id)}"><label>Title<input name="title" required value="${esc(asset.title || '')}"></label><label>Content<textarea name="output" rows="12" required>${esc(output)}</textarea></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Save new version ↗</button></div></form></div></div>`);
+}, true);
+document.addEventListener('click', async event => {
   const button = event.target.closest('[data-action="copy-asset"]');
   if (!button) return;
   event.preventDefault();
@@ -819,6 +887,19 @@ document.addEventListener('click', async event => {
   if (!output) return notify('This asset has no copyable content yet');
   await navigator.clipboard?.writeText(output);
   notify('Asset content copied');
+}, true);
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('#asset-edit-form');
+  if (!form) return;
+  event.preventDefault();
+  const values = new FormData(form);
+  try {
+    await api(`/api/content/assets/${encodeURIComponent(form.dataset.assetId)}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:values.get('title'), content:{output:values.get('output')}})});
+    form.closest('.modal-backdrop')?.remove();
+    document.querySelector('.asset-library')?.remove();
+    await mountAssetLibrary();
+    notify('New content version saved');
+  } catch (error) { notify(error.message); }
 }, true);
 function showGeneratedContent(result) {
   document.querySelector('.generated-output')?.remove();

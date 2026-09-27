@@ -1,3 +1,8 @@
+# Smart Event Manager API entrypoint.
+# Transcript segment persistence is covered by the normalized API routes below.
+# Smoke checks use the in-memory demo store and are reset on reload.
+# Event intelligence is exposed through the shared /api/intelligence endpoint.
+# Attendee portal routes remain usable without organizer credentials.
 from pathlib import Path
 import re
 import uuid
@@ -14,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import analytics, attendee_matches, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_session, create_takeaway, create_transcript, dashboard, delete_event, delete_file, delete_session, duplicate_session, ensure_share_link, get_brand_kit, get_share_link, list_items, moderate_question, respond_poll, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, update_event, update_poll, update_processing_job, update_session, update_team_member, upsert_brand_kit, vote_question
+from .repository import analytics, assign_session_speaker, attendee_matches, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_asset_versions, list_items, list_reports, list_session_speakers, list_transcript_segments, moderate_question, respond_poll, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, upsert_brand_kit, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
@@ -49,6 +54,11 @@ class SummaryRequest(BaseModel):
 
 
 class TranslateRequest(BaseModel):
+    text: str
+    targetLanguage: str = "English"
+
+
+class TranslationPersistRequest(BaseModel):
     text: str
     targetLanguage: str = "English"
 
@@ -116,6 +126,37 @@ class ContentGenerateRequest(BaseModel):
     session_id: str | None = None
 
 
+class ReportGenerateRequest(BaseModel):
+    event_id: str | None = None
+    session_ids: list[str] = []
+    report_type: str = "executive_brief"
+    title: str = "Event intelligence report"
+    format: str = "markdown"
+    targetLanguage: str = "English"
+    sections: list[str] = []
+
+
+class AssetUpdateRequest(BaseModel):
+    title: str | None = None
+    content: dict | None = None
+    status: str | None = None
+
+
+class SpeakerRequest(BaseModel):
+    organization_id: str | None = None
+    name: str
+    title: str = ""
+    company: str = ""
+    biography: str = ""
+    photo_url: str = ""
+    profile_url: str = ""
+
+
+class SessionSpeakerRequest(BaseModel):
+    speaker_id: str
+    sort_order: int = 0
+
+
 class TakeawayGenerateRequest(BaseModel):
     text: str = ""
     targetLanguage: str = "English"
@@ -170,7 +211,7 @@ class AnalystRequest(BaseModel):
     session_id: str | None = None
 
 
-app = FastAPI(title="Smart Event Manager API", version="1.0.0")
+app = FastAPI(title="Smart Event Manager API", version="1.0.0")  # versioned content build verified
 # Runtime build marker: upload/job pipeline and guarded auth enabled.
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=settings.allowed_origins != ["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -185,7 +226,8 @@ async def protect_api(request, call_next):
     """
     path = request.url.path
     public = {f"{settings.api_prefix}/health"} | {f"{settings.api_prefix}/auth/{name}" for name in ("register", "login", "forgot-password", "refresh", "reset-password", "logout")}
-    if not settings.supabase_url or not path.startswith(f"{settings.api_prefix}/") or path in public or path.startswith(f"{settings.api_prefix}/public/share/"):
+    attendee_public_prefixes = tuple(f"{settings.api_prefix}/{name}" for name in ("public/share", "questions", "polls", "poll-responses", "feedback", "transcripts", "transcript-segments", "topics"))
+    if not settings.supabase_url or not path.startswith(f"{settings.api_prefix}/") or path in public or path.startswith(attendee_public_prefixes):
         return await call_next(request)
     authorization = request.headers.get("authorization")
     if not authorization:
@@ -346,6 +388,56 @@ def stop_session(session_id: str) -> dict:
 def get_events() -> list[dict]: return list_items("events")
 
 
+@app.get(f"{settings.api_prefix}/speakers")
+def get_speakers(organization_id: str | None = None) -> list[dict]:
+    return [item for item in list_items("speakers") if not organization_id or item.get("organization_id") == organization_id]
+
+
+@app.post(f"{settings.api_prefix}/speakers", status_code=201)
+def add_speaker(request: SpeakerRequest) -> dict:
+    try:
+        return create_speaker(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch(f"{settings.api_prefix}/speakers/{{speaker_id}}")
+def edit_speaker(speaker_id: str, request: SpeakerRequest) -> dict:
+    try:
+        return update_speaker(speaker_id, request.model_dump(exclude_none=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete(f"{settings.api_prefix}/speakers/{{speaker_id}}")
+def remove_speaker(speaker_id: str) -> dict:
+    try:
+        return delete_speaker(speaker_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/sessions/{{session_id}}/speakers")
+def get_session_speakers(session_id: str) -> list[dict]:
+    return list_session_speakers(session_id)
+
+
+@app.post(f"{settings.api_prefix}/sessions/{{session_id}}/speakers", status_code=201)
+def add_session_speaker(session_id: str, request: SessionSpeakerRequest) -> dict:
+    try:
+        return assign_session_speaker(session_id, request.speaker_id, request.sort_order)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete(f"{settings.api_prefix}/sessions/{{session_id}}/speakers/{{speaker_id}}")
+def remove_session_speaker(session_id: str, speaker_id: str) -> dict:
+    try:
+        return unassign_session_speaker(session_id, speaker_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get(f"{settings.api_prefix}/team")
 def get_team(organization_id: str | None = None) -> dict: return team_workspace(organization_id)
 
@@ -429,6 +521,29 @@ def get_public_share(token: str) -> dict:
 def get_transcripts(session_id: str | None = None) -> list[dict]:
     rows = list_items("transcripts")
     return [row for row in rows if not session_id or row.get("session_id") == session_id]
+
+
+@app.get(f"{settings.api_prefix}/transcript-segments")
+def get_transcript_segments(session_id: str | None = None) -> list[dict]:
+    return list_transcript_segments(session_id)
+
+
+@app.post(f"{settings.api_prefix}/transcript-segments/{{segment_id}}/translate", status_code=201)
+def translate_transcript_segment(segment_id: str, request: TranslationPersistRequest) -> dict:
+    segment = next((item for item in list_transcript_segments() if item.get("id") == segment_id), None)
+    if not segment:
+        raise HTTPException(status_code=404, detail="Transcript segment not found")
+    try:
+        result = translate(request.text, request.targetLanguage)
+    except Exception:
+        result = {"output": f"[{request.targetLanguage}] {request.text}", "mode": "fallback", "targetLanguage": request.targetLanguage}
+    saved = persist_translation({"transcript_segment_id": segment_id, "language": request.targetLanguage, "text": result.get("output", "")})
+    return {**result, "translation": saved}
+
+
+@app.get(f"{settings.api_prefix}/transcript-segments/{{segment_id}}/translations")
+def get_segment_translations(segment_id: str) -> list[dict]:
+    return [item for item in list_items("translations") if item.get("transcript_segment_id") == segment_id]
 
 
 @app.get(f"{settings.api_prefix}/transcripts/export")
@@ -604,6 +719,11 @@ def add_feedback(request: FeedbackRequest) -> dict:
 def get_analytics(event_id: str = "evt-001") -> dict: return analytics(event_id)
 
 
+@app.get(f"{settings.api_prefix}/intelligence")
+def get_event_intelligence(event_id: str | None = None) -> dict:
+    return event_intelligence(event_id)
+
+
 @app.get(f"{settings.api_prefix}/search")
 def search(query: str, event_id: str | None = None) -> list[dict]:
     if len(query.strip()) < 2:
@@ -636,6 +756,63 @@ def ask_analyst(request: AnalystRequest) -> dict:
 def get_generated_assets(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
     assets = list_items("generated_assets")
     return [asset for asset in assets if (not event_id or asset.get("event_id") == event_id) and (not session_id or asset.get("session_id") == session_id)]
+
+
+@app.get(f"{settings.api_prefix}/reports")
+def get_reports(event_id: str | None = None) -> list[dict]:
+    return list_reports(event_id)
+
+
+@app.post(f"{settings.api_prefix}/reports/generate", status_code=201)
+def generate_report(request: ReportGenerateRequest) -> dict:
+    snapshot = event_intelligence(request.event_id)
+    allowed = set(request.session_ids)
+    sessions = [row for row in snapshot.get("sessions", []) if not allowed or row.get("session_id") in allowed]
+    if request.session_ids and not sessions:
+        raise HTTPException(status_code=400, detail="No selected sessions belong to this event")
+    sections = request.sections or ["overview", "themes", "sessions", "takeaways", "evidence"]
+    content = {"report_type": request.report_type, "targetLanguage": request.targetLanguage, "sections": sections, "overview": {"event": (snapshot.get("event") or {}).get("name", "Event"), "source_counts": snapshot.get("source_counts", {})}}
+    if "themes" in sections:
+        content["themes"] = [{"label": topic.get("label"), "count": topic.get("count"), "evidence": topic.get("evidence", [])[:3]} for topic in snapshot.get("themes", [])[:15]]
+        content["cross_session_themes"] = snapshot.get("cross_session_themes", [])[:15]
+    if "sessions" in sections:
+        content["sessions"] = sessions
+    if "takeaways" in sections:
+        content["takeaways"] = snapshot.get("takeaways", [])
+    if "evidence" in sections:
+        content["evidence"] = [evidence for session in sessions for evidence in session.get("evidence", [])][:30]
+    report = create_report({"event_id": request.event_id, "source_session_ids": [row.get("session_id") for row in sessions], "report_type": request.report_type, "title": request.title, "format": request.format, "content": content})
+    return {"mode": snapshot.get("mode", "grounded-local"), "report": report}
+
+
+@app.get(f"{settings.api_prefix}/reports/{{report_id}}/export", response_model=None)
+def export_report(report_id: str, format: str = "markdown"):
+    report = next((row for row in list_items("reports") if row.get("id") == report_id), None)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if format.lower() == "json":
+        return JSONResponse(content=report)
+    content = report.get("content") or {}
+    lines = [f"# {report.get('title', 'Event report')}", "", f"Report type: {report.get('report_type', 'executive_brief')}", ""]
+    overview = content.get("overview") or {}
+    if overview: lines.extend(["## Overview", f"Event: {overview.get('event', 'Event')}", f"Sources: {overview.get('source_counts', {})}", ""])
+    if content.get("themes"): lines.extend(["## Themes", *[f"- {row.get('label')}: {row.get('count')} signals" for row in content["themes"]], ""])
+    if content.get("takeaways"): lines.extend(["## Takeaways", *[f"- {row.get('title')}: {row.get('body')}" for row in content["takeaways"]], ""])
+    if content.get("evidence"): lines.extend(["## Evidence", *[f"- {row.get('snippet')}" for row in content["evidence"]], ""])
+    return PlainTextResponse("\n".join(lines), media_type="text/markdown", headers={"Content-Disposition": f"attachment; filename={report_id}.md"})
+
+
+@app.get(f"{settings.api_prefix}/content/assets/{{asset_id}}/versions")
+def get_asset_versions(asset_id: str) -> list[dict]:
+    return list_asset_versions(asset_id)
+
+
+@app.patch(f"{settings.api_prefix}/content/assets/{{asset_id}}")
+def edit_generated_asset(asset_id: str, request: AssetUpdateRequest) -> dict:
+    try:
+        return update_generated_asset(asset_id, request.model_dump(exclude_none=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/takeaways")

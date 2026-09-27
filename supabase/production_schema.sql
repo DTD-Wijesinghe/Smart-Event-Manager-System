@@ -138,6 +138,18 @@ create table if not exists public.generated_assets (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   created_by uuid references public.profiles(id) on delete set null, asset_type text not null, title text not null, content jsonb not null default '{}', status text not null default 'draft', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+create table if not exists public.generated_asset_versions (
+  id uuid primary key default gen_random_uuid(), asset_id uuid not null references public.generated_assets(id) on delete cascade,
+  version integer not null, title text not null, content jsonb not null default '{}', created_at timestamptz not null default now(),
+  unique (asset_id, version)
+);
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
+  created_by uuid references public.profiles(id) on delete set null, title text not null, report_type text not null default 'executive_brief',
+  format text not null default 'markdown', source_session_ids uuid[] not null default '{}', content jsonb not null default '{}',
+  status text not null default 'completed' check (status in ('queued','running','completed','failed')),
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
 create table if not exists public.files (
   id uuid primary key default gen_random_uuid(), event_id uuid references public.events(id) on delete cascade,
   session_id uuid references public.sessions(id) on delete cascade, original_name text not null, storage_path text not null,
@@ -157,6 +169,7 @@ create index if not exists sessions_event_time_idx on public.sessions(event_id, 
 create index if not exists questions_session_status_idx on public.questions(session_id, status, created_at desc);
 create index if not exists jobs_status_idx on public.processing_jobs(status, created_at);
 create index if not exists assets_event_idx on public.generated_assets(event_id, created_at desc);
+create index if not exists reports_event_idx on public.reports(event_id, created_at desc);
 
 drop trigger if exists organizations_updated_at on public.organizations;
 create trigger organizations_updated_at before update on public.organizations for each row execute function public.set_updated_at();
@@ -200,6 +213,8 @@ alter table public.poll_responses enable row level security;
 alter table public.feedback enable row level security;
 alter table public.brand_kits enable row level security;
 alter table public.generated_assets enable row level security;
+alter table public.generated_asset_versions enable row level security;
+alter table public.reports enable row level security;
 alter table public.files enable row level security;
 alter table public.processing_jobs enable row level security;
 alter table public.audit_logs enable row level security;

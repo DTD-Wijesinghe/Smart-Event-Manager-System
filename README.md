@@ -80,6 +80,8 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `POST`, `PATCH`, `DELETE /api/sessions` plus `POST /api/sessions/{session_id}/duplicate`
 - `POST /api/sessions/{session_id}/start` and `/stop`
 - `GET /api/events`
+- `GET`, `POST`, `PATCH`, `DELETE /api/speakers` — manage reusable speaker profiles
+- `GET`, `POST`, `DELETE /api/sessions/{session_id}/speakers` — assign speaker profiles to sessions
 - `POST /api/events`
 - `PATCH /api/events/{event_id}`
 - `DELETE /api/events/{event_id}`
@@ -89,6 +91,9 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
 - The attendee portal is session-aware: attendees can switch sessions, and the selected session scopes its live transcript, Q&A, polls, feedback, and browser capture workflow.
 - `GET /api/transcripts?session_id=...` - read the live transcript stream, optionally scoped to a session; the transcript view polls this endpoint every five seconds
+- `GET /api/transcript-segments?session_id=...` - read normalized, time-aware transcript segments for a session
+- `POST /api/transcript-segments/{segment_id}/translate` - translate and persist one segment for a target language
+- `GET /api/transcript-segments/{segment_id}/translations` - read saved translations for a segment
 - `GET /api/transcripts/export?format=txt|srt|vtt`
 - `POST /api/capture/text` - save a live text chunk from a browser, venue bridge, or meeting bot
 - `WS /api/ws/capture/{session_id}` - accept live chunks and return persisted transcript/insight events
@@ -97,10 +102,14 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/polls?session_id=...`, `POST /api/polls`, and `POST /api/poll-responses`
 - `POST /api/feedback`
 - `GET /api/analytics?event_id=...`
+- `GET /api/intelligence?event_id=...` - evidence-linked event-wide themes and cross-session relationships
 - `GET /api/search?query=...&event_id=...` - search sessions, transcripts, insights, and generated assets
 - `GET /api/topics?event_id=...&session_id=...` - build an evidence-backed topic cloud
 - `POST /api/analyst/ask` - answer an event-grounded question with source citations
 - `GET /api/content/assets`
+- `GET /api/reports?event_id=...` - list grounded strategic reports for an event
+- `POST /api/reports/generate` - generate an evidence-linked report from selected event/session data
+- `GET /api/reports/{report_id}/export?format=markdown|json` - download a report
 - `POST /api/content/generate` — generate and save a content asset in one request
 - `POST /api/ai/summarize`
 - `POST /api/ai/translate`
