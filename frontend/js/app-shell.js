@@ -875,7 +875,7 @@ async function mountAudienceData() {
 }
 function mountAttendeeTabs() {
   if (state.view !== 'attendee' || document.querySelector('.attendee-tabs')) return;
-  document.querySelector('.attendee-nav')?.insertAdjacentHTML('afterend', '<nav class="attendee-tabs" aria-label="Attendee portal sections"><button class="active" data-attendee-anchor="attendee-hero">Live</button><button data-attendee-anchor="attendee-summary-panel">Summary</button><button data-attendee-anchor="topic-cloud-panel">Idea cloud</button><button data-attendee-anchor="audience-data-panel">Q&A + Polls</button><button data-attendee-anchor="attendee-interactions">Feedback</button></nav>');
+  document.querySelector('.attendee-nav')?.insertAdjacentHTML('afterend', '<nav class="attendee-tabs" aria-label="Attendee portal sections"><button class="active" data-attendee-anchor="attendee-hero">Live</button><button data-attendee-anchor="attendee-takeaways-panel">Takeaways</button><button data-attendee-anchor="attendee-summary-panel">Summary</button><button data-attendee-anchor="topic-cloud-panel">Idea cloud</button><button data-attendee-anchor="audience-data-panel">Q&A + Polls</button><button data-attendee-anchor="attendee-interactions">Feedback</button></nav>');
 }
 async function mountAttendeeSummary() {
   if (state.view !== 'attendee' || document.querySelector('.attendee-summary-panel')) return;
