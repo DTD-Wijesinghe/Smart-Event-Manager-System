@@ -25,6 +25,21 @@ def summarize(text: str, target_language: str = "English") -> dict:
     return {"model": settings.text_model, "targetLanguage": target_language, "output": response.text or ""}
 
 
+def generate_content(text: str, target_language: str = "English", asset_type: str = "attendee_recap") -> dict:
+    instructions = {
+        "executive_brief": "Create a concise executive brief with Summary, decisions, risks, opportunities, and recommended next actions.",
+        "attendee_recap": "Create a warm attendee recap with the strongest ideas, practical takeaways, notable quotes, and what to explore next.",
+        "speaker_pack": "Create a speaker pack with a session summary, key quotes, audience questions, and three social-ready moments.",
+        "social_carousel": "Create an 8-slide social carousel. For every slide return a short headline and 1-2 sentence caption, followed by a final post caption and hashtags.",
+        "followup_email": "Create a polished post-event follow-up email with subject line, concise recap, three takeaways, and a clear next step.",
+        "sponsor_update": "Create a sponsor-ready impact update with audience signals, themes, proof points, and suggested follow-up language.",
+    }
+    instruction = instructions.get(asset_type, instructions["attendee_recap"])
+    prompt = f"You are Smart Event Manager's content studio. {instruction} Write in {target_language}. Use only the supplied event evidence; do not invent facts.\n\nEvent evidence:\n{text[:120000]}"
+    response = client().models.generate_content(model=settings.text_model, contents=prompt)
+    return {"model": settings.text_model, "targetLanguage": target_language, "assetType": asset_type, "output": response.text or ""}
+
+
 def translate(text: str, target_language: str = "English") -> dict:
     prompt = f"Translate the following event transcript into {target_language}. Preserve the meaning, speaker tone, and paragraph breaks. Return only the translation.\n\n{text[:120000]}"
     response = client().models.generate_content(model=settings.text_model, contents=prompt)
