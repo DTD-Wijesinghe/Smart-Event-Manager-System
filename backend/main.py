@@ -433,7 +433,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-attendee-personalization", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-structured-summaries", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -900,7 +900,7 @@ def generate_session_summary(session_id: str, request: SessionSummaryRequest, sh
         result = summarize(source, request.targetLanguage)
         mode = "ai"
     except Exception:
-        result = {"output": f"Overview\n{source[:360]}\n\nMain discussion points\n• {source[:240]}\n\nAction items\n• Review this evidence with the event team.", "model": "local-grounded"}
+        result = {"output": f"Overview\n{source[:360]}\n\nMain Discussion Points\n• {source[:240]}\n\nImportant Insights\n• Not captured\n\nDecisions\n• Not captured\n\nRecommendations\n• Review this evidence with the event team.\n\nQuestions Raised\n• Not captured\n\nAction Items\n• Review this evidence with the event team.\n\nNotable Quotes\n• Not captured\n\nTopics\n• Not captured\n\nPeople / Organizations Mentioned\n• Not captured", "model": "local-grounded"}
         mode = "fallback"
     content = {
         "output": result.get("output", ""),

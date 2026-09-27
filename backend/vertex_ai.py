@@ -20,7 +20,7 @@ def client() -> genai.Client:
 
 
 def summarize(text: str, target_language: str = "English") -> dict:
-    prompt = f"You are the content intelligence layer for Smart Event Manager. Summarize this event transcript for an organizer in {target_language}. Return sections: Summary, Key signals, Action items, Social post. Do not invent facts.\n\nTranscript:\n{text[:120000]}"
+    prompt = f"You are the content intelligence layer for Smart Event Manager. Summarize this session transcript for an organizer in {target_language}. Return these exact headings: Overview, Main Discussion Points, Important Insights, Decisions, Recommendations, Questions Raised, Action Items, Notable Quotes, Topics, People / Organizations Mentioned. Use concise bullets under each heading. Only include facts supported by the transcript; if a section has no evidence, write 'Not captured'. Preserve speaker names and quote wording when available. Do not invent facts.\n\nTranscript:\n{text[:120000]}"
     response = client().models.generate_content(model=settings.text_model, contents=prompt)
     return {"model": settings.text_model, "targetLanguage": target_language, "output": response.text or ""}
 
