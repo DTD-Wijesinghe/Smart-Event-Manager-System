@@ -335,6 +335,7 @@ async def protect_api(request, call_next):
       or (relative == "transcript-segments" and method == "GET")
         or (relative.startswith("transcript-segments/") and method in {"GET", "POST"} and (relative.endswith("/translate") or relative.endswith("/translations")))
       or (relative == "topics" and method == "GET")
+      or (relative == "takeaways" and method == "GET")
       or (relative == "search" and method == "GET")
       or (relative == "ai/translate" and method == "POST")
     )
@@ -1318,7 +1319,8 @@ def rewrite_generated_asset(asset_id: str, request: AssetRewriteRequest) -> dict
 
 
 @app.get(f"{settings.api_prefix}/takeaways")
-def get_takeaways(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+def get_takeaways(event_id: str | None = None, session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id, event_id=event_id)
     rows = list_items("takeaways")
     return [row for row in rows if (not event_id or row.get("event_id") == event_id) and (not session_id or row.get("session_id") == session_id)]
 

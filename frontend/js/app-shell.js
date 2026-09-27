@@ -852,6 +852,15 @@ async function mountPublishedContent() {
     if (list) list.innerHTML = assets.length ? assets.map(asset => { const content = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; return `<article class="insight"><span class="kind">${esc(asset.asset_type || 'event content')}</span><strong>${esc(asset.title || 'Published event content')}</strong><p>${esc(content).slice(0, 900)}</p></article>`; }).join('') : '<span class="muted">Published event content will appear here after organizer approval.</span>';
   } catch (error) { const list = document.querySelector('#published-content-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+async function mountAttendeeTakeaways() {
+  if (state.view !== 'attendee' || document.querySelector('.attendee-takeaways-panel')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions attendee-takeaways-panel"><div class="attendee-interaction-card"><div class="eyebrow">Live takeaways</div><h2>The strongest signals so far</h2><p>Evidence-linked takeaways distilled from the session as it develops.</p><div id="attendee-takeaway-list" class="insight-list"><span class="muted">Loading takeaways…</span></div></div></section>');
+  try {
+    const rows = await api(attendeeApi(`/api/takeaways?event_id=${encodeURIComponent(state.data?.event?.id || '')}&session_id=${encodeURIComponent(activeSessionId())}`));
+    const list = document.querySelector('#attendee-takeaway-list');
+    if (list) list.innerHTML = rows.length ? rows.map(row => `<article class="insight"><span class="kind">${row.confidence ? `${Math.round(row.confidence * 100)}% confidence` : 'TAKEAWAY'} · ${(row.evidence || []).length} sources</span><strong>${esc(row.title || 'Event takeaway')}</strong><p>${esc(row.body || '')}</p></article>`).join('') : '<span class="muted">Takeaways will appear after the first captured signals.</span>';
+  } catch (error) { const list = document.querySelector('#attendee-takeaway-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
 async function mountAudienceData() {
   if (state.view !== 'attendee' || document.querySelector('.audience-data-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions audience-data-panel"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Questions and polls</h2><div id="question-feed" class="insight-list"><span class="muted">Loading audience activity…</span></div><div id="poll-feed" class="insight-list"></div></div></section>');
@@ -915,7 +924,7 @@ async function mountSessionShareLinks() {
   } catch (error) { const list = document.querySelector('#session-share-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountPublishedContent(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
