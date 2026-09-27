@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
 from .repository import analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, vote_question
-from .vertex_ai import analyst_answer, summarize, transcribe, translate
+from .vertex_ai import analyst_answer, generate_content as generate_content_ai, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
 _RATE_STATE: dict[str, list[float]] = {}
@@ -1061,9 +1061,15 @@ def generate_takeaway(request: TakeawayGenerateRequest) -> dict:
 @app.post(f"{settings.api_prefix}/content/generate", status_code=201)
 def generate_content(request: ContentGenerateRequest) -> dict:
     if not request.text.strip(): raise HTTPException(status_code=400, detail="Source text is required")
-    result = create_summary(SummaryRequest(text=request.text, targetLanguage=request.targetLanguage))
+    try:
+        result = generate_content_ai(request.text, request.targetLanguage, request.asset_type)
+        mode = "ai"
+    except Exception:
+        fallback_titles = {"executive_brief": "Executive brief", "attendee_recap": "Attendee recap", "speaker_pack": "Speaker pack", "social_carousel": "Social carousel", "followup_email": "Follow-up email", "sponsor_update": "Sponsor update"}
+        result = {"model": "local-fallback", "targetLanguage": request.targetLanguage, "assetType": request.asset_type, "output": f"{fallback_titles.get(request.asset_type, 'Event content')}\n\nKey signal\n{request.text[:420]}\n\nNext action\nShare this evidence with the event team and approve the final version before publishing."}
+        mode = "fallback"
     asset = create_generated_asset({"event_id": request.event_id, "session_id": request.session_id, "asset_type": request.asset_type, "title": request.title, "content": {"output": result.get("output", ""), "targetLanguage": request.targetLanguage, "model": result.get("model", "")}, "status": "draft"})
-    return {**result, "asset": asset}
+    return {**result, "mode": mode, "asset": asset}
 
 
 @app.post(f"{settings.api_prefix}/capture/text", status_code=201)
