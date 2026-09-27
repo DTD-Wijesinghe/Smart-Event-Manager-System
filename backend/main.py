@@ -18,14 +18,14 @@ from typing import Any
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
 from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, remove_team_member, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_file, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
-from .storage import upload_bytes as upload_storage_bytes, delete_object as delete_storage_object
+from .storage import upload_bytes as upload_storage_bytes, delete_object as delete_storage_object, signed_url as create_storage_signed_url
 
 logger = logging.getLogger("smart_event_manager")
 _RATE_STATE: dict[str, list[float]] = {}
@@ -420,7 +420,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-report-ai", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-secure-files", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1031,6 +1031,36 @@ async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = Fil
 @app.get(f"{settings.api_prefix}/files")
 def get_files(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
     return [item for item in list_items("files") if (not event_id or item.get("event_id") == event_id) and (not session_id or item.get("session_id") == session_id)]
+
+
+@app.get(f"{settings.api_prefix}/files/{{file_id}}/access")
+def access_file(file_id: str, expires_in: int = 3600) -> dict:
+    file_record = next((item for item in list_items("files") if item.get("id") == file_id), None)
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = file_record.get("storage_path") or ""
+    if storage_mode() == "supabase":
+        try:
+            return {"file": file_record, "url": create_storage_signed_url(path, expires_in)}
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not create secure file access URL: {exc}") from exc
+    local_path = Path(path).resolve()
+    upload_root = (settings.data_dir / "uploads").resolve()
+    if local_path.parent != upload_root or not local_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file is no longer available")
+    return {"file": file_record, "url": f"{settings.api_prefix}/files/{file_id}/download"}
+
+
+@app.get(f"{settings.api_prefix}/files/{{file_id}}/download")
+def download_file(file_id: str):
+    file_record = next((item for item in list_items("files") if item.get("id") == file_id), None)
+    if not file_record or storage_mode() == "supabase":
+        raise HTTPException(status_code=404, detail="Local file download is unavailable")
+    local_path = Path(file_record.get("storage_path", "")).resolve()
+    upload_root = (settings.data_dir / "uploads").resolve()
+    if local_path.parent != upload_root or not local_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file is no longer available")
+    return FileResponse(local_path, media_type=file_record.get("mime_type") or "application/octet-stream", filename=file_record.get("original_name") or "event-upload")
 
 
 @app.delete(f"{settings.api_prefix}/files/{{file_id}}")

@@ -66,3 +66,21 @@ def delete_object(path: str) -> None:
     )
     if response.status_code not in {200, 204, 404}:
         response.raise_for_status()
+
+
+def signed_url(path: str, expires_in: int = 3600) -> str:
+    """Return a short-lived URL for a private object without exposing keys."""
+    if not configured():
+        raise RuntimeError("Supabase Storage is not configured")
+    encoded_path = "/".join(quote(part, safe="") for part in path.split("/"))
+    response = httpx.post(
+        f"{settings.supabase_url}/storage/v1/object/sign/{quote(settings.supabase_storage_bucket, safe='')}/{encoded_path}",
+        headers={**_headers("application/json"), "Accept": "application/json"},
+        json={"expiresIn": max(60, min(int(expires_in), 86400))},
+        timeout=20,
+    )
+    response.raise_for_status()
+    value = response.json().get("signedURL") or response.json().get("signedUrl")
+    if not value:
+        raise RuntimeError("Supabase did not return a signed URL")
+    return value if value.startswith("http") else f"{settings.supabase_url}/storage/v1{value}"
