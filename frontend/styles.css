@@ -88,9 +88,10 @@ html,body{max-width:100%;overflow-x:hidden}
 .marketing .landing-section-head>p{font-size:14px;line-height:1.6;color:#817a72}
 .marketing .landing-flow{max-width:1180px;margin:auto;gap:10px}
 .marketing .landing-flow article{border:1px solid var(--editorial-line);border-radius:2px;min-height:360px;padding:24px;background:#eadecd!important;color:var(--editorial-ink)!important;box-shadow:none!important;transition:transform .45s ease,background .45s ease}
+.marketing .landing-flow article{display:flex;flex-direction:column}
 .marketing .landing-flow article:hover{transform:translateY(-10px) rotate(-1deg);background:#f8f0e5!important}
 .marketing .flow-symbol{font-size:54px;margin-top:105px;color:#7568f3}
-.marketing .landing-flow h3{font-size:38px}.marketing .landing-flow p{color:#777068!important}.marketing .landing-flow a{color:#7568f3!important}
+.marketing .landing-flow h3{font-size:38px}.marketing .landing-flow p{color:#777068!important;margin-bottom:0}.marketing .landing-flow a{position:static;margin-top:auto;padding-top:22px;color:#7568f3!important;line-height:1.25}
 .marketing .dark-section{background:#20202a;color:#f8f2e9;padding-left:7vw;padding-right:7vw}
 .marketing .dark-section .landing-section-head>p{color:#aaa5a0}
 .marketing .platform-grid{max-width:1180px;margin:auto;gap:10px}
