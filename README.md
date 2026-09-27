@@ -132,6 +132,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/files?event_id=...&session_id=...`
 - `DELETE /api/files/{file_id}` — remove an uploaded file and its local stored copy
 - `GET /api/processing-jobs?event_id=...&session_id=...` — inspect queued/running/completed/failed processing jobs
+- `GET /microsite/{event_slug}` — public branded event recap page built from public event data and published content
 
 Public attendee data routes are token-scoped. Event links can read the event's sessions;
 session links can read only their assigned session. The token is carried by the QR URL
@@ -143,7 +144,8 @@ and is never treated as an organizer credential.
 2. Understand: use batch transcription, live transcript, language selection, and Gemini summaries to turn the source into takeaways.
 3. Distribute: show the event QR/link so attendees can open the browser portal without installing an app.
 4. Remix: use the Content Studio to prepare executive briefs, attendee recaps, speaker packs, and social-ready moments.
-5. Prove value: use sessions, attendee signals, insights, share-link clicks, and reports to show what resonated.
+5. Publish: preview the branded recap microsite at `/microsite/{event_slug}` and expose only approved content.
+6. Prove value: use sessions, attendee signals, insights, share-link clicks, and reports to show what resonated.
 
 For the Supabase-backed workspace, run **`supabase/production_schema.sql`** in the Supabase SQL Editor before enabling the service-role variables. Do not use the legacy `supabase/schema.sql` for a new deployment; it predates the current organizations, auth, content, jobs, and attendee workflows and does not create the tables used by the production API. The public landing page and demo capture flow remain usable while the database is unavailable. The API lets Supabase generate UUIDs for persisted rows, while the local demo store keeps its readable IDs.
 
