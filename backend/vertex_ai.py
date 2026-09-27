@@ -33,6 +33,12 @@ def generate_content(text: str, target_language: str = "English", asset_type: st
         "social_carousel": "Create an 8-slide social carousel. For every slide return a short headline and 1-2 sentence caption, followed by a final post caption and hashtags.",
         "followup_email": "Create a polished post-event follow-up email with subject line, concise recap, three takeaways, and a clear next step.",
         "sponsor_update": "Create a sponsor-ready impact update with audience signals, themes, proof points, and suggested follow-up language.",
+        "linkedin_post": "Create a thoughtful LinkedIn post with a strong opening, three grounded event insights, and a practical closing question. Do not use invented quotes.",
+        "quote_card": "Select up to three short, exact quote candidates from the evidence. Label each with the speaker when available and add a concise context line.",
+        "blog_article": "Create a useful post-event article with a clear headline, subhead, sections, grounded examples, and a concise conclusion.",
+        "newsletter": "Create a concise newsletter edition with subject line, preview text, event highlights, three takeaways, and a next-step CTA.",
+        "event_microsite": "Create a publish-ready event microsite outline with hero copy, overview, sessions, themes, takeaways, quote placeholders grounded in evidence, and CTA copy.",
+        "presentation_outline": "Create an editable presentation outline with title, slide headlines, speaker notes, evidence-backed takeaways, and a conclusion. Keep it to 8-10 slides.",
     }
     instruction = instructions.get(asset_type, instructions["attendee_recap"])
     prompt = f"You are Smart Event Manager's content studio. {instruction} Write in {target_language}. Use only the supplied event evidence; do not invent facts.\n\nEvent evidence:\n{text[:120000]}"

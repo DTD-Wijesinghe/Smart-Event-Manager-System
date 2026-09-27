@@ -1148,7 +1148,7 @@ def generate_content(request: ContentGenerateRequest) -> dict:
         result = generate_content_ai(request.text, request.targetLanguage, request.asset_type)
         mode = "ai"
     except Exception:
-        fallback_titles = {"executive_brief": "Executive brief", "attendee_recap": "Attendee recap", "speaker_pack": "Speaker pack", "social_carousel": "Social carousel", "followup_email": "Follow-up email", "sponsor_update": "Sponsor update"}
+        fallback_titles = {"executive_brief": "Executive brief", "attendee_recap": "Attendee recap", "speaker_pack": "Speaker pack", "social_carousel": "Social carousel", "followup_email": "Follow-up email", "sponsor_update": "Sponsor update", "linkedin_post": "LinkedIn post", "quote_card": "Quote card", "blog_article": "Event article", "newsletter": "Event newsletter", "event_microsite": "Event microsite outline", "presentation_outline": "Presentation outline"}
         result = {"model": "local-fallback", "targetLanguage": request.targetLanguage, "assetType": request.asset_type, "output": f"{fallback_titles.get(request.asset_type, 'Event content')}\n\nKey signal\n{request.text[:420]}\n\nNext action\nShare this evidence with the event team and approve the final version before publishing."}
         mode = "fallback"
     asset = create_generated_asset({"event_id": request.event_id, "session_id": request.session_id, "asset_type": request.asset_type, "title": request.title, "content": {"output": result.get("output", ""), "targetLanguage": request.targetLanguage, "model": result.get("model", ""), "evidence": evidence}, "status": "draft"})
