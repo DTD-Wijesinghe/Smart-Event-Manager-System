@@ -28,7 +28,7 @@ from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
 from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_attendee, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_attendee_preferences, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, remove_team_member, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_file, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_attendee_preferences, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
-from .storage import upload_bytes as upload_storage_bytes, delete_object as delete_storage_object, signed_url as create_storage_signed_url
+from .storage import download_bytes as download_storage_bytes, upload_bytes as upload_storage_bytes, delete_object as delete_storage_object, signed_url as create_storage_signed_url
 
 logger = logging.getLogger("smart_event_manager")
 _RATE_STATE: dict[str, list[float]] = {}
@@ -1114,6 +1114,40 @@ def remove_file(file_id: str) -> dict:
 @app.get(f"{settings.api_prefix}/processing-jobs")
 def get_processing_jobs(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
     return [item for item in list_items("processing_jobs") if (not event_id or item.get("event_id") == event_id) and (not session_id or item.get("session_id") == session_id)]
+
+
+@app.post(f"{settings.api_prefix}/processing-jobs/{{job_id}}/retry", status_code=202)
+def retry_processing_job(job_id: str, background_tasks: BackgroundTasks) -> dict:
+    """Requeue the most recent stored upload for a failed processing job."""
+    job = next((item for item in list_items("processing_jobs") if item.get("id") == job_id), None)
+    if not job:
+        raise HTTPException(status_code=404, detail="Processing job not found")
+    if job.get("status") != "failed":
+        raise HTTPException(status_code=409, detail="Only failed processing jobs can be retried")
+    files = [item for item in list_items("files") if item.get("session_id") == job.get("session_id") and item.get("storage_path")]
+    files.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    file_record = files[0] if files else None
+    if not file_record:
+        raise HTTPException(status_code=404, detail="The source upload for this job is no longer available")
+    try:
+        if storage_mode() == "supabase":
+            raw = download_storage_bytes(file_record["storage_path"])
+        else:
+            raw = Path(file_record["storage_path"]).read_bytes()
+    except (OSError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read the stored upload: {exc}") from exc
+    try:
+        update_file(file_record["id"], status="processing")
+        queued = update_processing_job(job_id, status="queued", progress=0, error_message=None, attempts=int(job.get("attempts") or 0) + 1)
+        enrichment = next((item for item in list_items("processing_jobs") if item.get("session_id") == job.get("session_id") and item.get("job_type") == "ai_enrichment" and item.get("status") == "failed"), None)
+        if enrichment:
+            enrichment = update_processing_job(enrichment["id"], status="queued", progress=0, error_message=None, attempts=int(enrichment.get("attempts") or 0) + 1)
+        else:
+            enrichment = create_processing_job({"event_id": job.get("event_id"), "session_id": job.get("session_id"), "job_type": "ai_enrichment", "status": "queued", "progress": 0})
+        background_tasks.add_task(_process_upload, file_record, queued, enrichment, raw, "auto", [])
+        return {"status": "queued", "file": file_record, "jobs": [queued, enrichment]}
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/questions")

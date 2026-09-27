@@ -55,6 +55,20 @@ def upload_bytes(path: str, content: bytes, content_type: str) -> str:
     return path
 
 
+def download_bytes(path: str) -> bytes:
+    """Read a private upload back from Supabase Storage for a retry job."""
+    if not configured():
+        raise RuntimeError("Supabase Storage is not configured")
+    encoded_path = "/".join(quote(part, safe="") for part in path.split("/"))
+    response = httpx.get(
+        f"{settings.supabase_url}/storage/v1/object/{quote(settings.supabase_storage_bucket, safe='')}/{encoded_path}",
+        headers=_headers(),
+        timeout=60,
+    )
+    response.raise_for_status()
+    return response.content
+
+
 def delete_object(path: str) -> None:
     if not configured() or not path:
         return

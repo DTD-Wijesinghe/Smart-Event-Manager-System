@@ -430,7 +430,7 @@ document.addEventListener('click', async event => {
   const insights = state.data?.insights || [];
   let jobs = [];
   try { jobs = await api(`/api/processing-jobs?event_id=${encodeURIComponent(state.data?.event?.id || '')}`); } catch (_) { /* notifications remain useful when jobs are unavailable */ }
-  const items = [...sessions.filter(item => item.status === 'live').map(item => `<div class="insight"><span class="kind">LIVE SESSION</span><strong>${esc(item.title)}</strong><p>Capture is active for ${esc(item.room || 'the live room')}.</p></div>`), ...jobs.filter(item => ['queued','running','failed'].includes(item.status)).slice(0, 5).map(item => `<div class="insight"><span class="kind">PROCESSING · ${esc(item.status)}</span><strong>${esc(item.original_name || item.file_name || 'Event file')}</strong><p>${esc(item.error_message || `${item.progress || 0}% complete`)}</p></div>`), ...insights.slice(0, 3).map(item => `<div class="insight"><span class="kind">NEW SIGNAL</span><strong>${esc(item.title || 'Event insight')}</strong><p>${esc(item.body || '')}</p></div>`)];
+  const items = [...sessions.filter(item => item.status === 'live').map(item => `<div class="insight"><span class="kind">LIVE SESSION</span><strong>${esc(item.title)}</strong><p>Capture is active for ${esc(item.room || 'the live room')}.</p></div>`), ...jobs.filter(item => ['queued','running','failed'].includes(item.status)).slice(0, 5).map(item => `<div class="insight"><span class="kind">PROCESSING · ${esc(item.status)}</span><strong>${esc(item.original_name || item.file_name || 'Event file')}</strong><p>${esc(item.error_message || `${item.progress || 0}% complete`)}</p>${item.status === 'failed' ? `<button class="btn ghost" data-action="retry-job" data-job-id="${esc(item.id)}">Retry processing</button>` : ''}</div>`), ...insights.slice(0, 3).map(item => `<div class="insight"><span class="kind">NEW SIGNAL</span><strong>${esc(item.title || 'Event insight')}</strong><p>${esc(item.body || '')}</p></div>`)];
   showUtilityPanel('Notifications', 'Workspace activity', items.join('') || '<p class="muted">No new activity requires attention.</p>');
 }, true);
 document.addEventListener('click', async e => { const nav=e.target.closest('.nav-item'); if(nav){state.view=nav.dataset.view;render();return} const viewLink=e.target.closest('[data-view-link]'); if(viewLink){e.preventDefault();const next=viewLink.dataset.viewLink;if(next==='auth'){if(state.authenticated){state.view='overview'}else{state.authMode=viewLink.dataset.authMode || 'login';state.view='auth'}}else{state.view=next}render();return} const action=e.target.closest('[data-action]')?.dataset.action; if(!action)return; if(['generate','match','export','copy-embed','share-social'].includes(action))return; if(action==='forgot-inline'){const box=document.querySelector('.forgot-inline');if(box){box.hidden=!box.hidden;e.target.textContent=box.hidden?'Forgot password?':'Hide password reset';}return} if(action==='send-reset'){notify('If the email exists, a reset link is on its way');return} if(action==='manage-event'){eventModal('edit');return} if(action==='event-new'){eventModal('create');return} if(action==='manage-team'){teamModal();return} if(action==='add-session'){modal();return} if(action==='close-modal'){document.querySelector('.modal-backdrop')?.remove();return} if(action==='copy-link'){await navigator.clipboard?.writeText(document.querySelector('#share-link')?.value || attendeePortalUrl());notify('Attendee link copied to clipboard');return} if(action==='library'){state.view='content';render();notify('Signal library opened');return} if(action==='share'){state.view='connect';render();return} });
@@ -763,6 +763,22 @@ document.addEventListener('click', async e => {
   }
 }, true);
 document.addEventListener('click', e => { const button=e.target.closest('[data-action="export"]'); if(!button)return; e.preventDefault(); e.stopImmediatePropagation(); const rows=state.view==='attendees'?state.data?.attendees:state.data?.sessions; downloadCsv(`${state.view}-export.csv`,rows); }, true);
+
+document.addEventListener('click', async e => {
+  const button = e.target.closest('[data-action="retry-job"]');
+  if (!button) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  button.disabled = true;
+  try {
+    await api(`/api/processing-jobs/${encodeURIComponent(button.dataset.jobId)}/retry`, {method:'POST'});
+    document.querySelector('.modal-backdrop')?.remove();
+    notify('Processing retry queued from the stored upload');
+  } catch (error) {
+    button.disabled = false;
+    notify(error.message);
+  }
+}, true);
 
 function mountQrDownload() {
   const wrap = document.querySelector('.connect-grid .qr-wrap');

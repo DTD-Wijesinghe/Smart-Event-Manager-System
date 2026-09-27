@@ -132,6 +132,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/files?event_id=...&session_id=...`
 - `DELETE /api/files/{file_id}` — remove an uploaded file and its local stored copy
 - `GET /api/processing-jobs?event_id=...&session_id=...` — inspect queued/running/completed/failed processing jobs
+- `POST /api/processing-jobs/{job_id}/retry` — requeue a failed stored upload without asking the organizer to upload it again
 - `GET /microsite/{event_slug}` — public branded event recap page built from public event data and published content
 
 Public attendee data routes are token-scoped. Event links can read the event's sessions;
