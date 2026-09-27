@@ -267,7 +267,7 @@ function transcript() { const d=state.data, session=d.sessions?.find(item=>item.
 function auth() { return `<div class="auth-view"><div class="auth-art"><div class="auth-orbit"></div><div class="eyebrow">Organizer workspace</div><h1>Run the room.<br><span>Keep the signal.</span></h1><p>Smart Event Manager gives event teams one place to plan, operate, share, and prove the value of every live moment.</p><div class="auth-proof"><span>◈</span> Live intelligence <span>✦</span> Shareable content <span>◎</span> Global access</div></div><div class="auth-card card"><div class="auth-tabs"><button type="button" class="auth-tab active" data-auth-tab="login" onclick="window.selectAuthMode('login')">Log in</button><button type="button" class="auth-tab" data-auth-tab="register" onclick="window.selectAuthMode('register')">Create account</button></div><div id="auth-form-wrap"></div></div></div>`; }
 function authForm(kind='login') { const config={login:['Welcome back','Log in to your organizer workspace','Log in'],register:['Create your workspace','Start building your next great event','Create account'],forgot:['Reset your password','We’ll send a secure reset link to your inbox','Send reset link']}[kind]; const password=kind!=='forgot'?`<label>Password<input type="password" name="password" placeholder="At least 8 characters" required></label>${kind==='login'?'<button type="button" class="forgot-inline-toggle" data-action="forgot-inline" style="border:0;background:none;color:var(--purple);font-size:11px;font-weight:800;padding:7px 0 0;text-align:left">Forgot password?</button><div class="forgot-inline" hidden><label>Reset email<input type="email" name="resetEmail" placeholder="you@company.com"></label><button type="button" class="btn ghost reset-inline-button" data-action="send-reset" style="margin-top:6px">Send reset link</button></div>':''}`:''; return `<form class="auth-form" id="${kind}-form"><h2>${config[0]}</h2><p>${config[1]}</p><label>Email address<input type="email" name="email" placeholder="you@company.com" required></label>${password}${kind==='register'?'<label>Confirm password<input type="password" name="confirm" placeholder="Repeat your password" required></label>':''}<button class="btn purple">${config[2]} ↗</button><small>By continuing, you agree to the workspace terms and event data policy.</small></form>`; }
 function resetAuthForm() { return `<form class="auth-form" id="reset-form"><h2>Choose a new password</h2><p>Create a new secure password for your organizer account.</p><label>New password<input type="password" name="password" placeholder="At least 8 characters" required></label><label>Confirm password<input type="password" name="confirm" placeholder="Repeat your password" required></label><button class="btn purple">Update password ↗</button><small>Your recovery link is used only for this password update.</small></form>`; }
-function render() { const views = { landing, overview, sessions, attendees, content, analytics: analyticsView, connect, attendee, screen, transcript, auth }; app.innerHTML = views[state.view](); const fullBleed = ['landing','auth','attendee','screen','transcript'].includes(state.view); document.body.classList.toggle('marketing', fullBleed); document.body.classList.toggle('workspace-view', !fullBleed); document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===state.view)); if(state.view==='auth'){const wrap=document.querySelector('#auth-form-wrap');wrap.innerHTML=state.authMode==='reset'?resetAuthForm():authForm(state.authMode);document.querySelectorAll('[data-auth-tab]').forEach(tab=>tab.addEventListener('click',()=>{state.authMode=tab.dataset.authTab;document.querySelectorAll('[data-auth-tab]').forEach(x=>x.classList.toggle('active',x===tab));wrap.innerHTML=authForm(state.authMode)}));} }
+function render() { const views = { landing, overview, sessions, attendees, content, analytics: analyticsView, connect, files: filesView, attendee, screen, transcript, auth }; app.innerHTML = views[state.view](); const fullBleed = ['landing','auth','attendee','screen','transcript'].includes(state.view); document.body.classList.toggle('marketing', fullBleed); document.body.classList.toggle('workspace-view', !fullBleed); document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===state.view)); if(state.view==='auth'){const wrap=document.querySelector('#auth-form-wrap');wrap.innerHTML=state.authMode==='reset'?resetAuthForm():authForm(state.authMode);document.querySelectorAll('[data-auth-tab]').forEach(tab=>tab.addEventListener('click',()=>{state.authMode=tab.dataset.authTab;document.querySelectorAll('[data-auth-tab]').forEach(x=>x.classList.toggle('active',x===tab));wrap.innerHTML=authForm(state.authMode)}));} }
 function modal() { if (document.querySelector('.modal-backdrop')) return; document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Add to the live program</div><h2>Create a session</h2><p>New sessions are saved to the local demo store, or directly to Supabase when your environment keys are configured.</p><form class="form-grid" id="session-form"><label>Session title<input name="title" required placeholder="e.g. Designing for the next decade"/></label><label>Track<select name="track"><option>Main stage</option><option>Leadership</option><option>Growth</option></select></label><label>Speaker<input name="speaker" placeholder="Name · Company"/></label><label>Room<input name="room" placeholder="Room 101"/></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Create session</button></div></form></div></div>`); }
 function eventModal(mode = 'edit') {
   document.querySelector('.modal-backdrop')?.remove();
@@ -1059,6 +1059,42 @@ async function mountOrganizerAudience() {
     if (pollList) pollList.innerHTML = polls.length ? polls.map(poll => `<article class="insight"><span class="kind">${poll.is_open ? 'OPEN' : 'CLOSED'} · ${esc(poll.poll_type || 'single')} · ${poll.results?.total_responses || 0} responses</span><strong>${esc(poll.question)}</strong><small class="muted">${(poll.options || []).map(option => `${esc(option.label)} (${option.responses || 0})`).join(' · ') || 'Free response'}</small><div class="actions-row compact-actions"><button class="btn ${poll.is_open ? 'ghost' : 'lime'}" data-poll-toggle="${esc(poll.id)}" data-poll-open="${poll.is_open ? 'false' : 'true'}">${poll.is_open ? 'Close poll' : 'Open for attendees'}</button></div></article>`).join('') : '<span class="muted">No polls yet. Publish the first audience pulse above.</span>';
   } catch (error) { const list = document.querySelector('#organizer-question-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+function filesView() {
+  const eventName = state.data?.event?.name || 'this event';
+  return `${head('Operations', 'Files & processing', `Review uploaded recordings and transcript files for ${esc(eventName)}.`, '<button class="btn lime" data-view-link="capture">↑ Upload recording</button>')}<section class="card section-card files-page"><div class="card-head"><div><h2>Event file library</h2><p class="muted">Every upload stays attached to its session, with processing status and secure access in one place.</p></div><span class="badge">Private workspace</span></div><div id="file-list" class="insight-list"><span class="muted">Loading uploaded files…</span></div></section><section class="card section-card"><div class="card-head"><div><h2>Processing jobs</h2><p class="muted">Track transcription work in the background and see clear errors when a file needs attention.</p></div><span class="badge">Live status</span></div><div id="job-list" class="insight-list"><span class="muted">Loading processing jobs…</span></div></section>`;
+}
+function formatFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return '—';
+  if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+async function mountFilesView() {
+  if (state.view !== 'files' || document.querySelector('.files-page')) return;
+  const eventId = state.data?.event?.id || '';
+  try {
+    const [files, jobs] = await Promise.all([
+      api(`/api/files?event_id=${encodeURIComponent(eventId)}`),
+      api(`/api/processing-jobs?event_id=${encodeURIComponent(eventId)}`)
+    ]);
+    const jobByFile = new Map((jobs || []).filter(job => job.file_id).map(job => [job.file_id, job]));
+    const fileList = document.querySelector('#file-list');
+    if (fileList) fileList.innerHTML = files.length ? files.map(file => {
+      const job = jobByFile.get(file.id);
+      const status = job?.status || file.status || 'uploaded';
+      const detail = [file.mime_type || 'file', formatFileSize(file.size_bytes), file.created_at ? date(file.created_at) : 'Uploaded now'].join(' · ');
+      return `<article class="insight file-row"><div><span class="kind">${esc(status)}${job?.progress != null ? ` · ${esc(job.progress)}%` : ''}</span><strong>${esc(file.original_name || 'Uploaded file')}</strong><small class="muted">${esc(detail)}</small>${job?.error_message ? `<p class="error-text">${esc(job.error_message)}</p>` : ''}</div><div class="actions-row compact-actions"><button class="btn ghost" data-file-access="${esc(file.id)}">Open file ↗</button><button class="btn ghost" data-file-delete="${esc(file.id)}" data-file-name="${esc(file.original_name || 'this file')}">Remove</button></div></article>`;
+    }).join('') : '<div class="empty-state"><strong>No files uploaded yet.</strong><p class="muted">Upload an audio recording, transcript, SRT, or VTT file from Capture to start building event intelligence.</p><button class="btn lime" data-view-link="capture">Go to Capture ↗</button></div>';
+    const jobList = document.querySelector('#job-list');
+    if (jobList) jobList.innerHTML = jobs.length ? jobs.map(job => `<article class="insight"><span class="kind">${esc(job.status || 'queued')} · ${esc(job.progress ?? 0)}%</span><strong>${esc(job.job_type || 'Transcription job')}</strong><small class="muted">${esc(job.session_id || 'Event-wide')} · ${job.updated_at ? date(job.updated_at) : 'Queued now'}</small>${job.error_message ? `<p class="error-text">${esc(job.error_message)}</p>` : ''}</article>`).join('') : '<span class="muted">No processing jobs have been created yet.</span>';
+  } catch (error) {
+    const message = `<span class="muted">${esc(error.message)}</span>`;
+    const fileList = document.querySelector('#file-list');
+    const jobList = document.querySelector('#job-list');
+    if (fileList) fileList.innerHTML = message;
+    if (jobList) jobList.innerHTML = message;
+  }
+}
 async function mountAssetLibrary() {
   if (state.view !== 'content' || document.querySelector('.asset-library')) return;
   document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card asset-library"><div class="card-head"><div><h2>Saved content library</h2><p class="muted">Generated briefs, recaps, and speaker packs remain attached to this event.</p></div><span class="badge">Persistent assets</span></div><div id="asset-list" class="insight-list"><span class="muted">Loading generated assets…</span></div></section>');
@@ -1299,7 +1335,29 @@ document.addEventListener('submit', async event => {
   } catch (error) { notify(error.message); }
 }, true);
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountQrDownload(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountQrDownload(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountFilesView(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+document.addEventListener('click', async event => {
+  const access = event.target.closest('[data-file-access]');
+  if (access) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    try {
+      const result = await api(`/api/files/${encodeURIComponent(access.dataset.fileAccess)}/access`);
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+    } catch (error) { notify(error.message); }
+    return;
+  }
+  const remove = event.target.closest('[data-file-delete]');
+  if (!remove) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (!window.confirm(`Remove ${remove.dataset.fileName || 'this file'}?`)) return;
+  try {
+    await api(`/api/files/${encodeURIComponent(remove.dataset.fileDelete)}`, {method:'DELETE'});
+    notify('File removed');
+    render();
+  } catch (error) { notify(error.message); }
+}, true);
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
@@ -1469,7 +1527,7 @@ connect = function() {
 return `${head('Distribution layer', 'Share & connect', 'Give every audience a doorway into the event — on stage, in the app, or in the follow-up email.', '<button class="btn lime" data-action="copy-link">Copy attendee link</button>')}<div class="grid connect-grid"><section class="card share-card"><h3>Attendee portal</h3><p>One clean destination for live takeaways, session details, questions, and post-event content.</p><div class="link-row"><input readonly value="${link}" id="share-link"/><button class="btn ghost" data-action="copy-link">Copy</button></div><div class="qr-wrap"><img class="qr-image" src="${qr}" alt="QR code for attendee portal"/><small>Place this QR on badges, screens, print, and speaker slides.<br><br><strong>${d.share_links?.[0]?.clicks || 0} portal opens</strong> from the current link.</small></div><div class="actions-row"><a class="btn" href="${link}">Open attendee portal ↗</a><button class="btn ghost" data-action="open-screen">Big-screen mode</button></div></section><section class="card share-card"><h3>Connected workflow</h3><p>Keep the event ecosystem moving with simple handoffs.</p><div class="insight"><span class="kind">LIVE DATA</span><strong>Supabase-ready data layer</strong><p>Events, sessions, attendees, insights, and share links are modeled for a direct database connection.</p></div><div class="insight"><span class="kind">EMBED KIT</span><strong>Put it inside your own app</strong><p>Use the portal URL inside an iframe, WebView, QR badge, email CTA, or event app deep link.</p></div><div class="actions-row"><button class="btn ghost" data-view-link="transcript">Live transcript</button><button class="btn ghost" data-action="copy-embed">Copy embed code</button></div></section></div>`;
 };
 
-const organizerViews = new Set(['overview', 'capture', 'sessions', 'attendees', 'content', 'analytics', 'connect', 'transcript', 'screen']);
+const organizerViews = new Set(['overview', 'capture', 'files', 'sessions', 'attendees', 'content', 'analytics', 'connect', 'transcript', 'screen']);
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-session-share]');
   if (!button) return;
