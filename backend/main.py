@@ -1258,6 +1258,19 @@ def edit_generated_asset(asset_id: str, request: AssetUpdateRequest) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post(f"{settings.api_prefix}/content/assets/{{asset_id}}/publish")
+def publish_generated_asset(asset_id: str) -> dict:
+    asset = next((row for row in list_items("generated_assets") if row.get("id") == asset_id), None)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Content asset not found")
+    if not str(asset.get("content", {}).get("output", "") if isinstance(asset.get("content"), dict) else asset.get("content", "")).strip():
+        raise HTTPException(status_code=400, detail="Add content before publishing this asset")
+    try:
+        return update_generated_asset(asset_id, {"status": "published"})
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.post(f"{settings.api_prefix}/content/assets/{{asset_id}}/rewrite")
 def rewrite_generated_asset(asset_id: str, request: AssetRewriteRequest) -> dict:
     instruction = request.instruction.strip()

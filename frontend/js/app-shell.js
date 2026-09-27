@@ -716,7 +716,7 @@ async function mountAssetLibrary() {
     const assets = await api(`/api/content/assets?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
     state.assets = assets;
     const list = document.querySelector('#asset-list');
-    if (list) list.innerHTML = assets.length ? assets.map(asset => { const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; const evidenceCount = typeof asset.content === 'object' ? (asset.content.evidence || []).length : 0; return `<article class="insight asset-item"><span class="kind">${esc(asset.asset_type || 'content')} · ${esc(asset.status || 'draft')} · ${evidenceCount} sources</span><strong>${esc(asset.title || 'Generated asset')}</strong><small class="muted">${asset.created_at ? date(asset.created_at) : 'Saved now'}</small><details><summary>View content</summary><pre>${esc(output)}</pre></details><div class="actions-row compact-actions"><button class="btn ghost" data-action="copy-asset" data-asset-id="${esc(asset.id)}">Copy content</button><button class="btn ghost" data-action="export-asset" data-format="markdown" data-asset-id="${esc(asset.id)}">↓ Markdown</button><button class="btn ghost" data-action="export-asset" data-format="json" data-asset-id="${esc(asset.id)}">↓ JSON</button><button class="btn ghost" data-action="edit-asset" data-asset-id="${esc(asset.id)}">Edit version</button></div></article>`; }).join('') : '<span class="muted">No generated assets yet. Create a brief or recap above.</span>';
+    if (list) list.innerHTML = assets.length ? assets.map(asset => { const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; const evidenceCount = typeof asset.content === 'object' ? (asset.content.evidence || []).length : 0; const publishAction = asset.status === 'published' ? '<span class="badge green">Published</span>' : `<button class="btn lime" data-action="publish-asset" data-asset-id="${esc(asset.id)}">Publish ↗</button>`; return `<article class="insight asset-item"><span class="kind">${esc(asset.asset_type || 'content')} · ${esc(asset.status || 'draft')} · ${evidenceCount} sources</span><strong>${esc(asset.title || 'Generated asset')}</strong><small class="muted">${asset.created_at ? date(asset.created_at) : 'Saved now'}</small><details><summary>View content</summary><pre>${esc(output)}</pre></details><div class="actions-row compact-actions"><button class="btn ghost" data-action="copy-asset" data-asset-id="${esc(asset.id)}">Copy content</button><button class="btn ghost" data-action="export-asset" data-format="markdown" data-asset-id="${esc(asset.id)}">↓ Markdown</button><button class="btn ghost" data-action="export-asset" data-format="json" data-asset-id="${esc(asset.id)}">↓ JSON</button><button class="btn ghost" data-action="edit-asset" data-asset-id="${esc(asset.id)}">Edit version</button>${publishAction}</div></article>`; }).join('') : '<span class="muted">No generated assets yet. Create a brief or recap above.</span>';
   } catch (error) { const list = document.querySelector('#asset-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 async function mountReportStudio() {
@@ -1082,6 +1082,20 @@ document.addEventListener('click', async event => {
   }
 }, true);
 
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="publish-asset"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  button.disabled = true;
+  try {
+    await api(`/api/content/assets/${encodeURIComponent(button.dataset.assetId)}/publish`, {method:'POST'});
+    document.querySelector('.asset-library')?.remove();
+    await mountAssetLibrary();
+    notify('Asset published to the event content workflow');
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; }
+}, true);
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-action="edit-asset"]');
   if (!button) return;
