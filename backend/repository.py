@@ -113,6 +113,45 @@ def create_session(payload: dict) -> dict:
     return item
 
 
+def update_session(session_id: str, payload: dict) -> dict:
+    session = next((item for item in demo_store["sessions"] if item.get("id") == session_id), None)
+    if not session:
+        raise KeyError("Session not found")
+    session.update({key: value for key, value in payload.items() if value is not None})
+    if storage_mode() == "supabase" and not str(session_id).startswith("ses-"):
+        remote = {key: value for key, value in payload.items() if value is not None and key not in {"id", "speaker", "attendance", "sentiment", "status"}}
+        if "status" in payload:
+            remote["status"] = "scheduled" if payload["status"] == "upcoming" else payload["status"]
+        if "summary" in payload:
+            remote["description"] = payload["summary"]
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/sessions?id=eq.{session_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=remote, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return _normalize_row("sessions", rows[0])
+    return session
+
+
+def delete_session(session_id: str) -> dict:
+    index = next((index for index, item in enumerate(demo_store["sessions"]) if item.get("id") == session_id), None)
+    if index is None:
+        raise KeyError("Session not found")
+    removed = demo_store["sessions"].pop(index)
+    if storage_mode() == "supabase" and not str(session_id).startswith("ses-"):
+        response = httpx.delete(f"{settings.supabase_url}/rest/v1/sessions?id=eq.{session_id}", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+    return {"deleted": True, "session": removed}
+
+
+def duplicate_session(session_id: str) -> dict:
+    source = next((item for item in demo_store["sessions"] if item.get("id") == session_id), None)
+    if not source:
+        raise KeyError("Session not found")
+    return create_session({"event_id": source.get("event_id"), "title": f"{source.get('title', 'Session')} (copy)", "track": source.get("track"), "room": source.get("room"), "speaker": source.get("speaker"), "starts_at": source.get("starts_at"), "ends_at": source.get("ends_at")})
+
+
 def create_transcript(payload: dict) -> dict:
     event_id, session_id = _default_foreign_keys(payload)
     item = {"id": f"trn-{len(demo_store['transcripts']) + 1:03d}", "event_id": event_id, "session_id": session_id, "language": payload.get("language", "auto"), "model": payload.get("model", ""), "text": payload.get("text", ""), "speaker": payload.get("speaker", "Live speaker"), "created_at": utc_now()}
@@ -187,6 +226,19 @@ def create_event(payload: dict) -> dict:
     number = len(demo_store["events"]) + 1
     item = {"id": f"evt-{number:03d}", "organization_id": payload.get("organization_id"), "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
     return _create_item("events", item)
+
+
+def delete_event(event_id: str) -> dict:
+    index = next((index for index, item in enumerate(demo_store["events"]) if item.get("id") == event_id), None)
+    if index is None:
+        raise KeyError("Event not found")
+    removed = demo_store["events"].pop(index)
+    demo_store["sessions"][:] = [item for item in demo_store["sessions"] if item.get("event_id") != event_id]
+    if storage_mode() == "supabase" and not str(event_id).startswith("evt-"):
+        response = httpx.delete(f"{settings.supabase_url}/rest/v1/events?id=eq.{event_id}", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+    return {"deleted": True, "event": removed}
 
 
 def update_event(event_id: str, payload: dict) -> dict:

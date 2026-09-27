@@ -165,6 +165,10 @@ function mountAnalystPanel() {
   if (state.view !== 'content' || document.querySelector('.analyst-panel')) return;
   document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card analyst-panel"><div class="card-head"><div><h2>Ask the event analyst</h2><p class="muted">Ask a question about captured sessions. Answers stay grounded in your event evidence.</p></div><span class="badge">Source linked</span></div><form id="analyst-form" class="capture-form"><textarea name="question" rows="3" required placeholder="What themes or opportunities appeared across the event?"></textarea><div class="capture-form-row"><button class="btn purple">Ask analyst ↗</button></div></form><div id="analyst-result" class="insight-list"></div></section>');
 }
+function mountSearchPanel() {
+  if (state.view !== 'content' || document.querySelector('.search-panel')) return;
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card search-panel"><div class="card-head"><div><h2>Search event knowledge</h2><p class="muted">Find sessions, transcript passages, insights, and generated assets.</p></div><span class="badge">Global search</span></div><form id="search-form" class="capture-form"><div class="capture-form-row"><input name="query" minlength="2" required placeholder="Search sustainability, resilience, or a speaker name"><button class="btn ghost">Search ↗</button></div></form><div id="search-results" class="insight-list"></div></section>');
+}
 async function mountTopicCloud() {
   if (state.view !== 'attendee' || document.querySelector('.topic-cloud-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions topic-cloud-panel"><div class="attendee-interaction-card"><div class="eyebrow">Event intelligence</div><h2>Explore the idea cloud</h2><p>Tap a topic to see the captured evidence behind it.</p><div id="topic-cloud" class="actions-row"><span class="muted">Loading topics…</span></div><div id="topic-evidence" class="insight-list"></div></div></section>');
@@ -185,9 +189,33 @@ async function mountAudienceData() {
     if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Poll'}</span><strong>${esc(poll.question)}</strong><form class="poll-response-form" data-poll-id="${esc(poll.id)}"><input name="answer_text" placeholder="Your response" required><button class="btn lime">Respond ↗</button></form></div>`).join('') : '';
   } catch (error) { const feed = document.querySelector('#question-feed'); if (feed) feed.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+function mountAttendeeTabs() {
+  if (state.view !== 'attendee' || document.querySelector('.attendee-tabs')) return;
+  document.querySelector('.attendee-nav')?.insertAdjacentHTML('afterend', '<nav class="attendee-tabs" aria-label="Attendee portal sections"><button class="active" data-attendee-anchor="attendee-hero">Live</button><button data-attendee-anchor="attendee-summary-panel">Summary</button><button data-attendee-anchor="topic-cloud-panel">Idea cloud</button><button data-attendee-anchor="audience-data-panel">Q&A + Polls</button><button data-attendee-anchor="attendee-interactions">Feedback</button></nav>');
+}
+function mountAttendeeSummary() {
+  if (state.view !== 'attendee' || document.querySelector('.attendee-summary-panel')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions attendee-summary-panel"><div class="attendee-interaction-card"><div class="eyebrow">Session intelligence</div><h2>Session summary</h2><p>Generate a grounded recap from the latest captured signals.</p><button class="btn lime" data-action="attendee-summary">Generate summary ↗</button><div id="attendee-summary-output" class="insight-list"></div></div></section>');
+}
+function mountTranscriptActions() {
+  if (state.view !== 'transcript' || document.querySelector('[data-action="export-transcript"]')) return;
+  document.querySelector('.transcript-view .actions')?.insertAdjacentHTML('afterbegin', '<button class="btn ghost" data-action="export-transcript">↓ Download TXT</button>');
+}
 const baseRender = render;
-render = function wrappedRender() { baseRender(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountAnalystPanel(); mountTopicCloud(); mountAudienceData(); };
+render = function wrappedRender() { baseRender(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'search-form') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const query = new FormData(e.target).get('query');
+    const resultBox = document.querySelector('#search-results');
+    if (resultBox) resultBox.innerHTML = '<div class="muted">Searching…</div>';
+    try {
+      const results = await api(`/api/search?query=${encodeURIComponent(query)}&event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+      if (resultBox) resultBox.innerHTML = results.length ? results.map(result => `<div class="insight"><span class="kind">${esc(result.type)} · ${esc(result.session_title || result.session_id || '')}</span><strong>${esc(result.title || '')}</strong><p>${esc(result.snippet || '')}</p></div>`).join('') : '<div class="muted">No matching event evidence found.</div>';
+    } catch (error) { if (resultBox) resultBox.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
+    return;
+  }
   if (e.target.id === 'analyst-form') {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -216,6 +244,13 @@ document.addEventListener('submit', async e => {
 }, true);
 
 document.addEventListener('click', async event => {
+  const anchor = event.target.closest('[data-attendee-anchor]')?.dataset.attendeeAnchor;
+  if (anchor) {
+    event.preventDefault();
+    document.querySelectorAll('[data-attendee-anchor]').forEach(tab => tab.classList.toggle('active', tab === event.target.closest('[data-attendee-anchor]')));
+    document.querySelector(`.${anchor}`)?.scrollIntoView({behavior:'smooth', block:'start'});
+    return;
+  }
   const topic = event.target.closest('[data-topic-label]')?.dataset.topicLabel;
   if (!topic) return;
   event.preventDefault();
@@ -314,7 +349,39 @@ document.addEventListener('click', event => {
 }, true);
 
 document.addEventListener('click', async event => {
+  if (event.target.closest('.auth-link') && state.authenticated) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const session = JSON.parse(localStorage.getItem('smart-event-session') || '{}');
+    try { await api('/api/auth/logout', {method:'POST', headers: session.access_token ? {Authorization:`Bearer ${session.access_token}`} : {}}); } catch (_) { /* local session is still cleared */ }
+    localStorage.removeItem('smart-event-session');
+    state.authenticated = false;
+    state.view = 'landing';
+    render();
+    notify('Signed out safely');
+    return;
+  }
   const action = event.target.closest('[data-action]')?.dataset.action;
+  if (action === 'attendee-summary') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const output = document.querySelector('#attendee-summary-output');
+    const source = [...(state.data?.transcripts || []), ...(state.data?.insights || [])].map(item => item.text || `${item.title}: ${item.body}`).join('\n') || 'Summarize the key ideas from this event session.';
+    if (output) output.innerHTML = '<div class="muted">Generating grounded summary…</div>';
+    try {
+      const result = await api('/api/ai/summarize', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source,targetLanguage:'English'})});
+      if (output) output.innerHTML = `<div class="insight"><span class="kind">${esc(result.mode || 'AI')} summary</span><p>${esc(result.output)}</p></div>`;
+    } catch (error) { if (output) output.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
+  }
+  if (action === 'export-transcript') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const rows = state.data?.transcripts || [];
+    if (!rows.length) return notify('There is no transcript to export yet');
+    const text = rows.slice().reverse().map(row => `[${row.created_at || 'LIVE'}] ${row.speaker || 'Live speaker'}: ${row.text || ''}`).join('\n');
+    const url = URL.createObjectURL(new Blob([text], {type:'text/plain;charset=utf-8'}));
+    const link = document.createElement('a'); link.href = url; link.download = 'smart-event-transcript.txt'; link.click(); URL.revokeObjectURL(url); notify('Transcript TXT downloaded');
+  }
   if (action === 'copy-embed') {
     event.preventDefault();
     event.stopImmediatePropagation();

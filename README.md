@@ -67,17 +67,20 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 
 - `GET /api/health`
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/forgot-password`
+- `POST /api/auth/logout`
 - `GET /api/dashboard`
 - `GET /api/sessions`
-- `POST /api/sessions`
+- `POST`, `PATCH`, `DELETE /api/sessions` plus `POST /api/sessions/{session_id}/duplicate`
 - `GET /api/events`
 - `POST /api/events`
 - `PATCH /api/events/{event_id}`
+- `DELETE /api/events/{event_id}`
 - `GET /api/attendees`
 - `GET /api/insights`
 - `GET /api/share-links`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
 - `GET /api/transcripts`
+- `GET /api/transcripts/export?format=txt|srt|vtt`
 - `POST /api/capture/text` - save a live text chunk from a browser, venue bridge, or meeting bot
 - `WS /api/ws/capture/{session_id}` - accept live chunks and return persisted transcript/insight events
 - `GET /api/questions?session_id=...`
