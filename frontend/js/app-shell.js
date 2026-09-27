@@ -1,4 +1,5 @@
 const state = { view: 'landing', data: null, authenticated: false, authMode: 'login', resetToken: '' };
+let transcriptRefreshTimer = null;
 const app = document.querySelector('#app');
 const toast = document.querySelector('#toast');
 
@@ -81,6 +82,8 @@ function overview() {
   <section class="card"><div class="card-head"><h2>Live intelligence</h2><a href="#content" data-view-link="content">Open studio ↗</a></div><div class="insight-list">${d.insights.map(i=>`<div class="insight"><span class="kind">${esc(i.kind)} · ${Math.round(i.confidence*100)}% confidence</span><strong>${esc(i.title)}</strong><p>${esc(i.body)}</p></div>`).join('')}<div class="signal">${[32,48,29,66,53,82,58,91,47,77,60,86,39,72,65,93,55,68].map(h=>`<i style="height:${h}%"></i>`).join('')}</div></div></section></div>`;
 }
 function sessions() { const d = state.data; return `${head('Program builder', 'Sessions', 'Keep the agenda clear, the rooms moving, and every talk ready to become a useful takeaway.', '<button class="btn ghost" data-action="export">↓ Export agenda</button><button class="btn lime" data-action="add-session">+ Add session</button>')}<section class="card section-card"><div class="card-head"><h2>All sessions · ${d.sessions.length}</h2><a href="#overview" data-view-link="overview">Back to overview</a></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Session</th><th>Track / room</th><th>Speaker</th><th>Time</th><th>Attendance</th><th>Status</th></tr></thead><tbody>${d.sessions.map(s=>`<tr><td><strong>${esc(s.title)}</strong><br><span class="muted">${esc(s.summary)}</span></td><td>${esc(s.track)}<br>${esc(s.room)}</td><td>${esc(s.speaker)}</td><td>${date(s.starts_at)}<br>${date(s.ends_at)}</td><td>${money(s.attendance)}</td><td><span class="badge ${s.status==='live'?'orange':'green'}">${s.status}</span></td></tr>`).join('')}</tbody></table></div></section>`; }
+function sessionList() { const d = state.data; return `${head('Program builder', 'Sessions', 'Keep the agenda clear, the rooms moving, and every talk ready to become a useful takeaway.', '<button class="btn ghost" data-action="export">↓ Export agenda</button><button class="btn lime" data-action="add-session">+ Add session</button>')}<section class="card section-card"><div class="card-head"><h2>All sessions · ${d.sessions.length}</h2><a href="#overview" data-view-link="overview">Back to overview</a></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Session</th><th>Track / room</th><th>Speaker</th><th>Time</th><th>Attendance</th><th>Status</th><th>Manage</th></tr></thead><tbody>${d.sessions.map(s=>`<tr><td><strong>${esc(s.title)}</strong><br><span class="muted">${esc(s.summary)}</span></td><td>${esc(s.track)}<br>${esc(s.room)}</td><td>${esc(s.speaker)}</td><td>${date(s.starts_at)}<br>${date(s.ends_at)}</td><td>${money(s.attendance)}</td><td><span class="badge ${s.status==='live'?'orange':'green'}">${esc(s.status)}</span></td><td><div class="actions-row compact-actions"><button class="btn ghost" data-action="edit-session" data-session-id="${esc(s.id)}">Edit</button><button class="btn ghost" data-action="duplicate-session" data-session-id="${esc(s.id)}">Duplicate</button><button class="btn ghost" data-action="delete-session" data-session-id="${esc(s.id)}">Delete</button></div></td></tr>`).join('')}</tbody></table></div></section>`; }
+sessions = sessionList;
 function attendees() { const d = state.data; return `${head('Audience intelligence', 'Attendees', 'Understand who is in the room, what they care about, and where the next meaningful connection can happen.', '<button class="btn ghost" data-action="export">↓ Export CSV</button><button class="btn purple" data-action="match">✦ Find matches</button>')}<section class="card section-card"><div class="card-head"><h2>Attendee signal map · ${d.attendees.length} loaded</h2><a href="#connect" data-view-link="connect">Networking tools ↗</a></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Person</th><th>Company / role</th><th>Interests</th><th>Intent score</th><th>Check-in</th></tr></thead><tbody>${d.attendees.map(a=>`<tr><td><strong>${esc(a.full_name)}</strong></td><td>${esc(a.company)}<br>${esc(a.role)}</td><td>${a.interests.map(i=>`<span class="badge">${esc(i)}</span>`).join(' ')}</td><td class="score">${a.intent_score}</td><td><span class="badge ${a.checked_in?'green':''}">${a.checked_in?'Checked in':'Not yet'}</span></td></tr>`).join('')}</tbody></table></div></section>`; }
 function content() { return `${head('Content engine', 'Content studio', 'Turn live signals into a clean stream of assets for attendees, speakers, sponsors, and leadership.', '<button class="btn ghost" data-action="share">↗ Share selected</button><button class="btn lime" data-action="generate">✦ Generate recap</button>')}<div class="grid studio-grid"><article class="card studio-card purple"><span class="studio-icon">✦</span><h3>Executive brief</h3><p>One sharp page of the themes, tensions, and decisions that leadership needs next.</p><button class="btn lime" data-action="generate">Generate brief ↗</button></article><article class="card studio-card lime"><span class="studio-icon">◌</span><h3>Attendee recap</h3><p>A branded, multilingual digest that helps the room keep learning after the closing keynote.</p><button class="btn" data-action="generate">Create recap ↗</button></article><article class="card studio-card blue"><span class="studio-icon">◒</span><h3>Speaker remix</h3><p>Give every speaker a quote bank, session summary, and moments ready for social.</p><button class="btn ghost" data-action="generate">Build speaker pack ↗</button></article><article class="card studio-card"><span class="studio-icon">▦</span><h3>Signal library</h3><p>Browse the strongest quotes, audience questions, topic clusters, and audio moments.</p><button class="btn ghost" data-action="library">Open library ↗</button></article></div>`; }
 function connect() { const d = state.data, link = `${location.origin}/attendee/${d.event.slug}`; const qr = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(link)}`; return `${head('Distribution layer', 'Share & connect', 'Give every audience a doorway into the event — on stage, in the app, or in the follow-up email.', '<button class="btn lime" data-action="copy-link">Copy attendee link</button>')}<div class="grid connect-grid"><section class="card share-card"><h3>Attendee portal</h3><p>One clean destination for live takeaways, session details, questions, and post-event content.</p><div class="link-row"><input readonly value="${link}" id="share-link"/><button class="btn ghost" data-action="copy-link">Copy</button></div><div class="qr-wrap"><img class="qr-image" src="${qr}" alt="QR code for attendee portal"/><small>Place this QR on badges, screens, print, and speaker slides.<br><br><strong>${d.share_links[0].clicks} portal opens</strong> from the current link.</small></div><div class="actions-row"><button class="btn" data-view-link="attendee">Open attendee portal ↗</button><button class="btn ghost" data-view-link="screen">Big-screen mode</button></div></section><section class="card share-card"><h3>Connected workflow</h3><p>Keep the event ecosystem moving with simple handoffs.</p><div class="insight"><span class="kind">LIVE DATA</span><strong>Supabase-ready data layer</strong><p>Events, sessions, attendees, insights, and share links are modeled for a direct database connection.</p></div><div class="insight"><span class="kind">EMBED KIT</span><strong>Put it inside your own app</strong><p>Use the portal URL inside an iframe, WebView, QR badge, email CTA, or event app deep link.</p></div><div class="actions-row"><button class="btn ghost" data-view-link="transcript">Live transcript</button><button class="btn ghost" data-action="copy-embed">Copy embed code</button></div></section></div>`; }
@@ -99,8 +102,47 @@ document.addEventListener('submit', async e => { if(e.target.id==='session-form'
 // from marking a user authenticated before the server accepts the request.
 document.addEventListener('click', async e => { const action=e.target.closest('[data-action="send-reset"]')?.dataset.action; if(action!=='send-reset')return; e.preventDefault(); e.stopImmediatePropagation(); const email=document.querySelector('input[name="resetEmail"]')?.value || document.querySelector('#login-form input[name="email"]')?.value; if(!email)return notify('Enter your email address first'); try{await api('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});notify('If the email exists, a reset link is on its way')}catch(error){notify(error.message)} }, true);
 document.addEventListener('submit', async e => { const form=e.target; if(!['login-form','register-form','forgot-form'].includes(form.id))return; e.preventDefault(); e.stopImmediatePropagation(); const fields=Object.fromEntries(new FormData(form)); try { if(form.id==='register-form' && fields.password!==fields.confirm) throw new Error('Passwords do not match'); const endpoint=form.id==='login-form'?'/api/auth/login':form.id==='register-form'?'/api/auth/register':'/api/auth/forgot-password'; const payload=form.id==='forgot-form'?{email:fields.email}:{email:fields.email,password:fields.password}; const result=await api(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); if(form.id==='forgot-form'){notify('If the email exists, a reset link is on its way');return} state.authenticated=true; localStorage.setItem('smart-event-session',JSON.stringify(result.session||{})); await openWorkspace(form.id==='login-form'?'Welcome back - organizer workspace ready':'Workspace created - welcome to Smart Event Manager'); } catch(error){notify(error.message)} }, true);
+function sessionEditModal(session) { document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Program builder</div><h2>Edit session</h2><p>Changes are saved to the active event workspace.</p><form class="form-grid" id="session-edit-form"><input type="hidden" name="session_id" value="${esc(session.id)}"><label>Session title<input name="title" required value="${esc(session.title || '')}"></label><label>Track<select name="track"><option ${session.track==='Main stage'?'selected':''}>Main stage</option><option ${session.track==='Leadership'?'selected':''}>Leadership</option><option ${session.track==='Growth'?'selected':''}>Growth</option></select></label><label>Speaker<input name="speaker" value="${esc(session.speaker || '')}"></label><label>Room<input name="room" value="${esc(session.room || '')}"></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Save changes</button></div></form></div></div>`); }
 document.querySelector('#mobileMenu').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
 document.addEventListener('change', async e => { const selector=e.target.closest('.transcript-toolbar select'); if(!selector)return; const language=(selector.value||'English').split(' ')[0]; if(language==='English')return notify('Original English transcript selected'); const source=[...document.querySelectorAll('.transcript-card p')].map(item=>item.textContent).join('\n'); const status=document.querySelector('#translation-status'); if(status)status.textContent='Translating…'; try{const result=await api('/api/ai/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:source,targetLanguage:language})}); let output=document.querySelector('.translation-output'); if(!output){document.querySelector('.transcript-card')?.insertAdjacentHTML('afterbegin','<div class="translation-output insight"></div>');output=document.querySelector('.translation-output')} output.innerHTML=`<span class="kind">${esc(result.targetLanguage)} translation</span><p>${esc(result.output)}</p>`; if(status)status.textContent=result.mode==='fallback'?'Local preview':'Live'; }catch(error){if(status)status.textContent=error.message} });
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="edit-session"], [data-action="duplicate-session"], [data-action="delete-session"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const sessionId = button.dataset.sessionId;
+  const action = button.dataset.action;
+  const session = state.data?.sessions?.find(item => item.id === sessionId);
+  if (!session) return notify('Session could not be found');
+  try {
+    if (action === 'edit-session') { sessionEditModal(session); return; }
+    if (action === 'duplicate-session') {
+      await api(`/api/sessions/${encodeURIComponent(sessionId)}/duplicate`, {method:'POST'});
+      state.data = await api('/api/dashboard');
+      render();
+      notify('Session duplicated');
+      return;
+    }
+    if (!window.confirm(`Delete “${session.title}”? This removes the session from the agenda.`)) return;
+    await api(`/api/sessions/${encodeURIComponent(sessionId)}`, {method:'DELETE'});
+    state.data = await api('/api/dashboard');
+    render();
+    notify('Session deleted');
+  } catch (error) { notify(error.message); }
+}, true);
+document.addEventListener('submit', async event => {
+  if (event.target.id !== 'session-edit-form') return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const fields = Object.fromEntries(new FormData(event.target));
+  try {
+    await api(`/api/sessions/${encodeURIComponent(fields.session_id)}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:fields.title, track:fields.track, speaker:fields.speaker, room:fields.room})});
+    document.querySelector('.modal-backdrop')?.remove();
+    state.data = await api('/api/dashboard');
+    render();
+    notify('Session updated');
+  } catch (error) { notify(error.message); }
+}, true);
 load();
 document.addEventListener('submit', async event => {
   const form = event.target;
@@ -202,6 +244,27 @@ function mountTranscriptData() {
   if (!card) return;
   card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small></div>`).join('');
 }
+async function refreshLiveTranscript() {
+  if (state.view !== 'transcript') return;
+  try {
+    const rows = await api('/api/transcripts?session_id=ses-001');
+    state.data = {...state.data, transcripts: rows};
+    mountTranscriptData();
+    const status = document.querySelector('.live-sync-status');
+    if (status) status.textContent = `Live sync - ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+  } catch (_) {
+    const status = document.querySelector('.live-sync-status');
+    if (status) status.textContent = 'Live sync paused';
+  }
+}
+function mountLiveTranscriptSync() {
+  clearInterval(transcriptRefreshTimer);
+  transcriptRefreshTimer = null;
+  if (state.view !== 'transcript') return;
+  document.querySelector('.transcript-toolbar')?.insertAdjacentHTML('beforeend', document.querySelector('.live-sync-status') ? '' : '<span class="live-sync-status muted">Live sync on</span>');
+  refreshLiveTranscript();
+  transcriptRefreshTimer = setInterval(refreshLiveTranscript, 5000);
+}
 function mountAnalystPanel() {
   if (state.view !== 'content' || document.querySelector('.analyst-panel')) return;
   document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card analyst-panel"><div class="card-head"><div><h2>Ask the event analyst</h2><p class="muted">Ask a question about captured sessions. Answers stay grounded in your event evidence.</p></div><span class="badge">Source linked</span></div><form id="analyst-form" class="capture-form"><textarea name="question" rows="3" required placeholder="What themes or opportunities appeared across the event?"></textarea><div class="capture-form-row"><button class="btn purple">Ask analyst ↗</button></div></form><div id="analyst-result" class="insight-list"></div></section>');
@@ -227,7 +290,7 @@ async function mountAudienceData() {
     const questionFeed = document.querySelector('#question-feed');
     if (questionFeed) questionFeed.innerHTML = questions.length ? questions.map(question => `<div class="insight"><span class="kind">${question.status || 'pending'} · ${question.votes || 0} votes</span><p>${esc(question.body)}</p><button class="btn ghost" data-question-vote="${esc(question.id)}">Upvote</button></div>`).join('') : '<span class="muted">No audience questions yet.</span>';
     const pollFeed = document.querySelector('#poll-feed');
-    if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Poll'}</span><strong>${esc(poll.question)}</strong><form class="poll-response-form" data-poll-id="${esc(poll.id)}"><input name="answer_text" placeholder="Your response" required><button class="btn lime">Respond ↗</button></form></div>`).join('') : '';
+    if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => { const options = (poll.options || []).map(option => `<label class="poll-option"><input type="${poll.poll_type === 'multiple' ? 'checkbox' : 'radio'}" name="${poll.poll_type === 'multiple' ? 'option_ids' : 'option_id'}" value="${esc(option.id)}" ${poll.poll_type === 'multiple' ? '' : 'required'}> ${esc(option.label)}</label>`).join(''); return `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Poll'} · ${esc(poll.poll_type || 'single')}</span><strong>${esc(poll.question)}</strong><form class="poll-response-form" data-poll-id="${esc(poll.id)}">${options || '<input name="answer_text" placeholder="Your response" required>'}<button class="btn lime">Respond ↗</button></form></div>`; }).join('') : '';
   } catch (error) { const feed = document.querySelector('#question-feed'); if (feed) feed.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 function mountAttendeeTabs() {
@@ -250,7 +313,7 @@ function mountLiveMetrics() {
   [stats.attendees, live?.attendance || 0, stats.transcripts + stats.questions, stats.average_session_rating ? `${Math.round(stats.average_session_rating * 20)}%` : '—'].forEach((value, index) => { if (cards[index]) cards[index].textContent = typeof value === 'number' ? money(value) : value; });
 }
 const baseRender = render;
-render = function wrappedRender() { baseRender(); mountLiveMetrics(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
+render = function wrappedRender() { baseRender(); mountLiveMetrics(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountLiveTranscriptSync(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
@@ -325,7 +388,7 @@ document.addEventListener('submit', async event => {
   const form = event.target.closest('.poll-response-form');
   if (!form) return;
   event.preventDefault();
-  try { await api('/api/poll-responses', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, answer_text:new FormData(form).get('answer_text')})}); form.reset(); notify('Poll response recorded'); }
+  try { const values = new FormData(form); await api('/api/poll-responses', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, option_id:values.get('option_id') || null, option_ids:values.getAll('option_ids'), answer_text:values.get('answer_text') || null})}); form.reset(); notify('Poll response recorded'); }
   catch (error) { notify(error.message); }
 }, true);
 

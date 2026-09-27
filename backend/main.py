@@ -48,6 +48,7 @@ class PollRequest(BaseModel):
 class PollResponseRequest(BaseModel):
     poll_id: str
     option_id: str | None = None
+    option_ids: list[str] = []
     attendee_id: str = "anonymous"
     answer_text: str | None = None
     rating: int | None = None
@@ -264,7 +265,9 @@ def get_public_share(token: str) -> dict:
 
 
 @app.get(f"{settings.api_prefix}/transcripts")
-def get_transcripts() -> list[dict]: return list_items("transcripts")
+def get_transcripts(session_id: str | None = None) -> list[dict]:
+    rows = list_items("transcripts")
+    return [row for row in rows if not session_id or row.get("session_id") == session_id]
 
 
 @app.get(f"{settings.api_prefix}/transcripts/export")
@@ -309,7 +312,8 @@ def add_question_vote(question_id: str, request: VoteRequest) -> dict:
 @app.get(f"{settings.api_prefix}/polls")
 def get_polls(session_id: str | None = None) -> list[dict]:
     polls = list_items("polls")
-    return [item for item in polls if not session_id or item.get("session_id") == session_id]
+    options = list_items("poll_options")
+    return [{**item, "options": sorted([option for option in options if option.get("poll_id") == item.get("id")], key=lambda option: option.get("sort_order", 0))} for item in polls if not session_id or item.get("session_id") == session_id]
 
 
 @app.post(f"{settings.api_prefix}/polls", status_code=201)
@@ -320,7 +324,19 @@ def add_poll(request: PollRequest) -> dict:
 
 
 @app.post(f"{settings.api_prefix}/poll-responses", status_code=201)
-def add_poll_response(request: PollResponseRequest) -> dict: return respond_poll(request.model_dump())
+def add_poll_response(request: PollResponseRequest) -> dict:
+    poll = next((item for item in list_items("polls") if item.get("id") == request.poll_id), None)
+    if not poll:
+        raise HTTPException(status_code=404, detail="Poll not found")
+    selected = request.option_ids or ([request.option_id] if request.option_id else [])
+    valid_options = {item.get("id") for item in list_items("poll_options") if item.get("poll_id") == request.poll_id}
+    if any(option_id not in valid_options for option_id in selected):
+        raise HTTPException(status_code=400, detail="Selected poll option is invalid")
+    if poll.get("poll_type") != "multiple" and len(selected) > 1:
+        raise HTTPException(status_code=400, detail="This poll accepts one option")
+    if len(selected) > 1:
+        return {"responses": [respond_poll({**request.model_dump(), "option_id": option_id}) for option_id in selected]}
+    return respond_poll({**request.model_dump(), "option_id": selected[0] if selected else None})
 
 
 @app.post(f"{settings.api_prefix}/feedback", status_code=201)

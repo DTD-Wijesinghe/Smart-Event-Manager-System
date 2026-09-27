@@ -69,6 +69,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/forgot-password`
 - `POST /api/auth/logout`
 - `POST /api/auth/refresh`
+- `POST /api/auth/reset-password` - complete a Supabase recovery-link password update with the recovery bearer token
 - `GET /api/dashboard`
 - `GET /api/sessions`
 - `POST`, `PATCH`, `DELETE /api/sessions` plus `POST /api/sessions/{session_id}/duplicate`
@@ -81,7 +82,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/insights`
 - `GET /api/share-links`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
-- `GET /api/transcripts`
+- `GET /api/transcripts?session_id=...` - read the live transcript stream, optionally scoped to a session; the transcript view polls this endpoint every five seconds
 - `GET /api/transcripts/export?format=txt|srt|vtt`
 - `POST /api/capture/text` - save a live text chunk from a browser, venue bridge, or meeting bot
 - `WS /api/ws/capture/{session_id}` - accept live chunks and return persisted transcript/insight events
