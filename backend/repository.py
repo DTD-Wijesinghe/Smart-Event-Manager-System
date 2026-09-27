@@ -1051,12 +1051,25 @@ def search_knowledge(query: str, event_id: str | None = None, session_id: str | 
             if kind == "transcript_segment":
                 score += 1
             semantic_score = _vector_similarity(query_vector, _local_retrieval_vector(searchable))
-            if not score and semantic_score < 0.22:
+            if not score and settings.embedding_provider != "vertex" and semantic_score < 0.22:
                 continue
             rank_score = round(score + max(0.0, semantic_score) * 4, 4)
             session = sessions.get(row.get("session_id")) or sessions.get(row.get("id"))
             snippet = row.get("text") or row.get("body") or row.get("summary") or str(row.get("content", ""))
             results.append({"type": kind, "score": score, "semantic_score": semantic_score, "rank_score": rank_score, "embedding_model": "local-hash-v1", "id": row.get("id"), "title": row.get("title") or row.get("name") or snippet.split(".", 1)[0], "snippet": str(snippet)[:360], "session_id": row.get("session_id") or row.get("id"), "session_title": session.get("title") if session else None, "speaker": row.get("speaker"), "created_at": row.get("created_at"), "source_type": kind, "source_id": row.get("id")})
+    if settings.embedding_provider == "vertex" and results:
+        try:
+            from .vertex_ai import embed_texts
+
+            query_embedding = embed_texts([normalized_query], "RETRIEVAL_QUERY")[0]
+            document_embeddings = embed_texts([item["snippet"] for item in results[:100]], "RETRIEVAL_DOCUMENT")
+            for item, embedding in zip(results, document_embeddings):
+                item["semantic_score"] = _vector_similarity(query_embedding, embedding)
+                item["rank_score"] = round(item["score"] + max(0.0, item["semantic_score"]) * 4, 4)
+                item["embedding_model"] = settings.embedding_model
+        except Exception:
+            # Provider outages must not make event search unavailable.
+            pass
     return sorted(results, key=lambda item: (item["rank_score"], item["score"], item.get("created_at") or ""), reverse=True)[:50]
 
 

@@ -163,3 +163,9 @@ Gemini Developer API access, or set `GCP_PROJECT` plus
 `VERTEX_SERVICE_ACCOUNT_JSON` for Vertex AI. The Gemini key is never sent to
 the browser. Render's `render.yaml` declares `GEMINI_API_KEY` as a protected
 environment variable; set it in the Render dashboard rather than committing it.
+
+Knowledge retrieval uses a dependency-free local vector ranker by default. To
+enable dense Vertex retrieval, set `EMBEDDING_PROVIDER=vertex` and optionally
+set `GEMINI_EMBEDDING_MODEL` (default `gemini-embedding-001`) and
+`GEMINI_EMBEDDING_DIMENSIONS` (default `256`). If Vertex embedding calls fail,
+search automatically falls back to the local ranker.

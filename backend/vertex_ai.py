@@ -74,3 +74,15 @@ def transcribe(audio: bytes, mime_type: str = "audio/webm", language_codes: list
     instruction = f"Transcribe the provided event audio accurately. Identify speakers when possible and preserve the spoken language.{vocabulary_hint}"
     response = client().models.generate_content(model=settings.batch_model, contents=contents, config=types.GenerateContentConfig(system_instruction=instruction))
     return {"model": settings.batch_model, "transcript": response.text or "", "languageCodes": language_codes or [], "vocabulary": terms}
+
+
+def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
+    """Generate dense retrieval vectors through the configured Vertex provider."""
+    if not texts:
+        return []
+    response = client().models.embed_content(
+        model=settings.embedding_model,
+        contents=texts,
+        config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=settings.embedding_dimensions),
+    )
+    return [list(item.values or []) for item in (response.embeddings or [])]
