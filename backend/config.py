@@ -17,8 +17,10 @@ class Settings:
     allowed_origins = origins(os.getenv("ALLOWED_ORIGINS", "*"))
     project = os.getenv("GCP_PROJECT", "")
     location = os.getenv("GCP_LOCATION", "global")
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     _credentials_value = os.getenv("VERTEX_SERVICE_ACCOUNT_JSON", "")
-    credentials_path = str((ROOT_DIR / _credentials_value).resolve()) if _credentials_value and not Path(_credentials_value).is_absolute() else _credentials_value
+    credentials_json = _credentials_value if _credentials_value.lstrip().startswith("{") else ""
+    credentials_path = str((ROOT_DIR / _credentials_value).resolve()) if _credentials_value and not credentials_json and not Path(_credentials_value).is_absolute() else (_credentials_value if not credentials_json else "")
     text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
     batch_model = os.getenv("GEMINI_BATCH_MODEL", "gemini-3.5-transcribe")
     live_model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.5-transcribe-live")

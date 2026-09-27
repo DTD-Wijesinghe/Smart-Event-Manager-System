@@ -34,6 +34,16 @@ python -m venv .venv
 
 Then open `http://127.0.0.1:8000/`.
 
+## Render deployment
+
+The included `render.yaml` defines the Python web service. Render uses
+`pip install -r backend/requirements.txt` to build and
+`uvicorn backend.main:app --host 0.0.0.0 --port $PORT` to start it. Add
+`GCP_PROJECT`, `VERTEX_SERVICE_ACCOUNT_JSON`, `SUPABASE_URL`, and the
+Supabase keys as protected Render environment variables. The Vertex variable
+may contain the full service-account JSON; never commit credentials or private
+keys.
+
 The app runs in demo mode until `SUPABASE_URL` and either `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` are configured.
 
 ## Gemini API integration
@@ -68,12 +78,16 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/share-links`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
 - `GET /api/transcripts`
-- `POST /api/capture/text` — save a live text chunk from a browser, venue bridge, or meeting bot
+- `POST /api/capture/text` - save a live text chunk from a browser, venue bridge, or meeting bot
+- `WS /api/ws/capture/{session_id}` - accept live chunks and return persisted transcript/insight events
 - `GET /api/questions?session_id=...`
 - `POST /api/questions` and `POST /api/questions/{question_id}/votes`
 - `GET /api/polls?session_id=...`, `POST /api/polls`, and `POST /api/poll-responses`
 - `POST /api/feedback`
 - `GET /api/analytics?event_id=...`
+- `GET /api/search?query=...&event_id=...` - search sessions, transcripts, insights, and generated assets
+- `GET /api/topics?event_id=...&session_id=...` - build an evidence-backed topic cloud
+- `POST /api/analyst/ask` - answer an event-grounded question with source citations
 - `GET /api/content/assets`
 - `POST /api/content/generate` — generate and save a content asset in one request
 - `POST /api/ai/summarize`
@@ -93,3 +107,8 @@ For the Supabase-backed workspace, run `supabase/production_schema.sql` in the S
 For a ready-to-view workspace after the migration, optionally run `supabase/seed_demo.sql` next. It creates the sample organization, event, session, insight, and attendee portal link without storing credentials.
 
 The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.
+
+AI authentication supports two server-side options: set `GEMINI_API_KEY` for
+Gemini Developer API access, or set `GCP_PROJECT` plus
+`VERTEX_SERVICE_ACCOUNT_JSON` for Vertex AI. The Gemini key is never sent to
+the browser.

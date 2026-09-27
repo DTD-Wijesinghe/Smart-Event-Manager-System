@@ -1,14 +1,14 @@
 from pathlib import Path
 from typing import Any
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
-from .repository import analytics, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, get_share_link, list_items, respond_poll, storage_mode, update_event, vote_question
-from .vertex_ai import summarize, transcribe, translate
+from .repository import analytics, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, get_share_link, list_items, respond_poll, search_knowledge, storage_mode, topic_cloud, update_event, vote_question
+from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 
 class SummaryRequest(BaseModel):
@@ -79,13 +79,20 @@ class RecoveryRequest(BaseModel):
     email: str
 
 
+class AnalystRequest(BaseModel):
+    question: str
+    event_id: str | None = None
+    session_id: str | None = None
+
+
 app = FastAPI(title="Smart Event Manager API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=settings.allowed_origins != ["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
-    return {"ok": True, "mode": storage_mode(), "vertexConfigured": bool(settings.project and settings.credentials_path and Path(settings.credentials_path).exists()), "project": settings.project or None}
+    vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
+    return {"ok": True, "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "project": settings.project or None}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -221,6 +228,34 @@ def add_feedback(request: FeedbackRequest) -> dict:
 def get_analytics(event_id: str = "evt-001") -> dict: return analytics(event_id)
 
 
+@app.get(f"{settings.api_prefix}/search")
+def search(query: str, event_id: str | None = None) -> list[dict]:
+    if len(query.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Search query must be at least two characters")
+    return search_knowledge(query, event_id)
+
+
+@app.get(f"{settings.api_prefix}/topics")
+def get_topics(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    return topic_cloud(event_id, session_id)
+
+
+@app.post(f"{settings.api_prefix}/analyst/ask")
+def ask_analyst(request: AnalystRequest) -> dict:
+    if len(request.question.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Ask a longer event question")
+    sources = search_knowledge(request.question, request.event_id)
+    if request.session_id:
+        sources = [source for source in sources if source.get("session_id") == request.session_id]
+    if not sources:
+        return {"mode": "grounded", "answer": "I could not find supporting event content for that question yet.", "citations": []}
+    try:
+        return {"mode": "ai", **analyst_answer(request.question, sources)}
+    except Exception:
+        excerpts = " ".join(source["snippet"] for source in sources[:3])
+        return {"mode": "fallback", "answer": f"Relevant event evidence: {excerpts}", "citations": sources[:3]}
+
+
 @app.get(f"{settings.api_prefix}/content/assets")
 def get_generated_assets() -> list[dict]: return list_items("generated_assets")
 
@@ -243,6 +278,28 @@ def capture_text(request: CaptureRequest) -> dict:
     saved = create_transcript(payload)
     insight = create_insight(payload)
     return {"transcript": saved, "insight": insight, "captured": True, "mode": storage_mode()}
+
+
+@app.websocket(f"{settings.api_prefix}/ws/capture/{{session_id}}")
+async def capture_socket(websocket: WebSocket, session_id: str) -> None:
+    """Accept live text chunks from a venue bridge or meeting integration."""
+    await websocket.accept()
+    try:
+        while True:
+            payload = await websocket.receive_json()
+            if payload.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            text = str(payload.get("text", "")).strip()
+            if not text:
+                await websocket.send_json({"type": "error", "detail": "Capture text is required"})
+                continue
+            capture = {"text": text, "model": payload.get("model", "live-bridge"), "language": payload.get("language", "auto"), "session_id": session_id, "speaker": payload.get("speaker", "Live speaker")}
+            saved = create_transcript(capture)
+            insight = create_insight(capture)
+            await websocket.send_json({"type": "capture", "transcript": saved, "insight": insight, "mode": storage_mode()})
+    except WebSocketDisconnect:
+        return
 
 
 @app.post(f"{settings.api_prefix}/ai/summarize")
@@ -268,8 +325,10 @@ def create_translation(request: TranslateRequest) -> dict:
 async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form("ses-001"), language: str = Form("auto")) -> dict:
     try:
         result = transcribe(await file.read(), file.content_type or "audio/webm", [] if language == "auto" else [language])
-        saved = create_transcript({"text": result["transcript"], "model": result["model"], "language": language, "session_id": session_id})
-        return {**result, "transcript": saved}
+        capture = {"text": result["transcript"], "model": result["model"], "language": language, "session_id": session_id, "speaker": "Detected speaker"}
+        saved = create_transcript(capture)
+        insight = create_insight(capture)
+        return {**result, "transcript": saved, "insight": insight}
     except Exception as exc: raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 

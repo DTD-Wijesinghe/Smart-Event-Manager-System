@@ -161,9 +161,45 @@ function mountTranscriptData() {
   if (!card) return;
   card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small></div>`).join('');
 }
+function mountAnalystPanel() {
+  if (state.view !== 'content' || document.querySelector('.analyst-panel')) return;
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card analyst-panel"><div class="card-head"><div><h2>Ask the event analyst</h2><p class="muted">Ask a question about captured sessions. Answers stay grounded in your event evidence.</p></div><span class="badge">Source linked</span></div><form id="analyst-form" class="capture-form"><textarea name="question" rows="3" required placeholder="What themes or opportunities appeared across the event?"></textarea><div class="capture-form-row"><button class="btn purple">Ask analyst ↗</button></div></form><div id="analyst-result" class="insight-list"></div></section>');
+}
+async function mountTopicCloud() {
+  if (state.view !== 'attendee' || document.querySelector('.topic-cloud-panel')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions topic-cloud-panel"><div class="attendee-interaction-card"><div class="eyebrow">Event intelligence</div><h2>Explore the idea cloud</h2><p>Tap a topic to see the captured evidence behind it.</p><div id="topic-cloud" class="actions-row"><span class="muted">Loading topics…</span></div><div id="topic-evidence" class="insight-list"></div></div></section>');
+  try {
+    const topics = await api(`/api/topics?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    const cloud = document.querySelector('#topic-cloud');
+    if (cloud) cloud.innerHTML = topics.length ? topics.map(topic => `<button class="btn ghost" data-topic-label="${esc(topic.label)}" style="font-size:${Math.round(11 + topic.weight * 9)}px">${esc(topic.label)} <small>${topic.count}</small></button>`).join('') : '<span class="muted">Topic signals will appear after the first capture.</span>';
+  } catch (error) { const cloud = document.querySelector('#topic-cloud'); if (cloud) cloud.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
+async function mountAudienceData() {
+  if (state.view !== 'attendee' || document.querySelector('.audience-data-panel')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions audience-data-panel"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Questions and polls</h2><div id="question-feed" class="insight-list"><span class="muted">Loading audience activity…</span></div><div id="poll-feed" class="insight-list"></div></div></section>');
+  try {
+    const [questions, polls] = await Promise.all([api('/api/questions?session_id=ses-001'), api('/api/polls?session_id=ses-001')]);
+    const questionFeed = document.querySelector('#question-feed');
+    if (questionFeed) questionFeed.innerHTML = questions.length ? questions.map(question => `<div class="insight"><span class="kind">${question.status || 'pending'} · ${question.votes || 0} votes</span><p>${esc(question.body)}</p><button class="btn ghost" data-question-vote="${esc(question.id)}">Upvote</button></div>`).join('') : '<span class="muted">No audience questions yet.</span>';
+    const pollFeed = document.querySelector('#poll-feed');
+    if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Poll'}</span><strong>${esc(poll.question)}</strong><form class="poll-response-form" data-poll-id="${esc(poll.id)}"><input name="answer_text" placeholder="Your response" required><button class="btn lime">Respond ↗</button></form></div>`).join('') : '';
+  } catch (error) { const feed = document.querySelector('#question-feed'); if (feed) feed.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
 const baseRender = render;
-render = function wrappedRender() { baseRender(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); };
+render = function wrappedRender() { baseRender(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountAnalystPanel(); mountTopicCloud(); mountAudienceData(); };
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'analyst-form') {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const question = new FormData(e.target).get('question');
+    const output = document.querySelector('#analyst-result');
+    if (output) output.innerHTML = '<div class="muted">Searching event evidence…</div>';
+    try {
+      const result = await api('/api/analyst/ask', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({question, event_id:state.data?.event?.id})});
+      if (output) output.innerHTML = `<div class="insight"><span class="kind">${esc(result.mode)} answer</span><p>${esc(result.answer)}</p>${(result.citations||[]).slice(0,3).map(source => `<small class="muted">${esc(source.session_title || source.session_id || 'Event source')} · ${esc(source.snippet || '')}</small>`).join('<br>')}</div>`;
+    } catch (error) { if (output) output.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
+    return;
+  }
   if (e.target.id === 'question-form') {
     e.preventDefault();
     const form = new FormData(e.target);
@@ -177,6 +213,37 @@ document.addEventListener('submit', async e => {
     try { await api('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:'ses-001', speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('content_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
     catch (error) { notify(error.message); }
   }
+}, true);
+
+document.addEventListener('click', async event => {
+  const topic = event.target.closest('[data-topic-label]')?.dataset.topicLabel;
+  if (!topic) return;
+  event.preventDefault();
+  const evidence = document.querySelector('#topic-evidence');
+  if (evidence) evidence.innerHTML = '<div class="muted">Finding supporting passages…</div>';
+  try {
+    const results = await api(`/api/search?query=${encodeURIComponent(topic)}&event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    if (evidence) evidence.innerHTML = results.slice(0, 4).map(result => `<div class="insight"><span class="kind">${esc(result.type)} · ${esc(result.session_title || result.session_id || '')}</span><p>${esc(result.snippet)}</p></div>`).join('') || '<div class="muted">No supporting passage found.</div>';
+  } catch (error) { if (evidence) evidence.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
+}, true);
+
+document.addEventListener('click', async event => {
+  const questionId = event.target.closest('[data-question-vote]')?.dataset.questionVote;
+  if (!questionId) return;
+  event.preventDefault();
+  try {
+    const question = await api(`/api/questions/${encodeURIComponent(questionId)}/votes`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({voter_id:'browser-anonymous'})});
+    event.target.textContent = `${question.votes || 1} votes`;
+    event.target.disabled = true;
+  } catch (error) { notify(error.message); }
+}, true);
+
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('.poll-response-form');
+  if (!form) return;
+  event.preventDefault();
+  try { await api('/api/poll-responses', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, answer_text:new FormData(form).get('answer_text')})}); form.reset(); notify('Poll response recorded'); }
+  catch (error) { notify(error.message); }
 }, true);
 
 document.addEventListener('submit', async e => {
@@ -244,6 +311,27 @@ document.addEventListener('click', event => {
   state.view = 'auth';
   render();
   notify('Organizer login required');
+}, true);
+
+document.addEventListener('click', async event => {
+  const action = event.target.closest('[data-action]')?.dataset.action;
+  if (action === 'copy-embed') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const portal = document.querySelector('#share-link')?.value || `${location.origin}${location.pathname}?share=gff-live#attendee`;
+    await navigator.clipboard?.writeText(`<iframe src="${portal}" title="Smart Event Manager attendee portal" loading="lazy"></iframe>`);
+    notify('Embed code copied');
+  }
+  if (action === 'share-social') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const portal = document.querySelector('#share-link')?.value || `${location.origin}${location.pathname}?share=gff-live#attendee`;
+    try {
+      if (navigator.share) await navigator.share({title:'Smart Event Manager event portal', text:'Join the live event experience', url:portal});
+      else await navigator.clipboard?.writeText(portal);
+      notify(navigator.share ? 'Share sheet opened' : 'Event link copied for social sharing');
+    } catch (_) { notify('Event sharing was cancelled'); }
+  }
 }, true);
 
 function showGeneratedContent(result) {

@@ -1,4 +1,5 @@
 import httpx
+import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
@@ -255,8 +256,55 @@ def create_generated_asset(payload: dict) -> dict:
 
 
 def analytics(event_id: str = "evt-001") -> dict:
-    sessions = [item for item in demo_store["sessions"] if item.get("event_id") == event_id]
+    # Read from the configured storage adapter so deployed reports reflect
+    # Supabase data instead of the local demo fixture.
+    sessions = [item for item in list_items("sessions") if item.get("event_id") == event_id]
     session_ids = {item["id"] for item in sessions}
-    feedback = [item for item in demo_store["feedback"] if item.get("session_id") in session_ids]
+    feedback = [item for item in list_items("feedback") if item.get("session_id") in session_ids]
     ratings = [item["session_rating"] for item in feedback if item.get("session_rating") is not None]
-    return {"event_id": event_id, "sessions": len(sessions), "attendees": sum(item.get("attendance", 0) for item in sessions), "transcripts": len(demo_store["transcripts"]), "questions": len(demo_store["questions"]), "poll_responses": len(demo_store["poll_responses"]), "feedback_responses": len(feedback), "generated_assets": len(demo_store["generated_assets"]), "average_session_rating": round(sum(ratings) / len(ratings), 2) if ratings else None}
+    transcripts = [item for item in list_items("transcripts") if not session_ids or item.get("session_id") in session_ids]
+    questions = [item for item in list_items("questions") if not session_ids or item.get("session_id") in session_ids]
+    assets = [item for item in list_items("generated_assets") if not event_id or item.get("event_id") == event_id]
+    poll_responses = list_items("poll_responses")
+    return {"event_id": event_id, "sessions": len(sessions), "attendees": sum(item.get("attendance", 0) for item in sessions), "transcripts": len(transcripts), "questions": len(questions), "poll_responses": len(poll_responses), "feedback_responses": len(feedback), "generated_assets": len(assets), "average_session_rating": round(sum(ratings) / len(ratings), 2) if ratings else None}
+
+
+def search_knowledge(query: str, event_id: str | None = None) -> list[dict]:
+    """Search the shared event knowledge layer and return traceable results."""
+    terms = {part for part in query.lower().split() if len(part) > 1}
+    if not terms:
+        return []
+    sessions = {item.get("id"): item for item in list_items("sessions")}
+    collections = [("session", list_items("sessions")), ("transcript", list_items("transcripts")), ("insight", list_items("insights")), ("asset", list_items("generated_assets"))]
+    results: list[dict] = []
+    for kind, rows in collections:
+        for row in rows:
+            if event_id and row.get("event_id") and row.get("event_id") != event_id:
+                continue
+            searchable = " ".join(str(row.get(key, "")) for key in ("title", "name", "text", "body", "summary", "content", "asset_type")).lower()
+            score = sum(1 for term in terms if term in searchable)
+            if not score:
+                continue
+            session = sessions.get(row.get("session_id")) or sessions.get(row.get("id"))
+            results.append({"type": kind, "score": score, "id": row.get("id"), "title": row.get("title") or row.get("name") or (row.get("text") or row.get("body") or "").split(".", 1)[0], "snippet": (row.get("text") or row.get("body") or row.get("summary") or str(row.get("content", "")))[:360], "session_id": row.get("session_id") or row.get("id"), "session_title": session.get("title") if session else None, "speaker": row.get("speaker"), "created_at": row.get("created_at")})
+    return sorted(results, key=lambda item: (item["score"], item.get("created_at") or ""), reverse=True)[:50]
+
+
+def topic_cloud(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    """Build a lightweight, evidence-backed topic cloud from captured content."""
+    stopwords = {"about", "across", "after", "again", "also", "because", "being", "could", "from", "have", "into", "more", "most", "that", "their", "there", "these", "they", "this", "with", "what", "when", "where", "which", "will", "would", "your", "the", "and", "for", "are", "not", "our", "you", "was", "but", "can", "how", "its", "all", "one", "out", "than", "then", "them", "those", "very", "just", "live", "session", "event", "shared", "signals", "attendees", "new"}
+    rows = list_items("transcripts") + list_items("insights")
+    counts: dict[str, int] = {}
+    evidence: dict[str, list[dict]] = {}
+    for row in rows:
+        if event_id and row.get("event_id") and row.get("event_id") != event_id:
+            continue
+        if session_id and row.get("session_id") != session_id:
+            continue
+        source_text = f"{row.get('text', '')} {row.get('title', '')} {row.get('body', '')}"
+        words = {word.lower() for word in re.findall(r"[A-Za-z][A-Za-z0-9'-]{3,}", source_text)} - stopwords
+        for word in words:
+            counts[word] = counts.get(word, 0) + 1
+            evidence.setdefault(word, []).append({"id": row.get("id"), "session_id": row.get("session_id"), "snippet": (row.get("text") or row.get("body") or row.get("title") or "")[:220]})
+    maximum = max(counts.values(), default=1)
+    return [{"label": label, "count": count, "weight": round(count / maximum, 2), "evidence": evidence[label][:5]} for label, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:30]]

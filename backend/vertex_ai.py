@@ -1,4 +1,5 @@
 from functools import lru_cache
+import json
 from google import genai
 from google.genai import types
 from google.oauth2 import service_account
@@ -7,9 +8,14 @@ from .config import settings
 
 @lru_cache(maxsize=1)
 def client() -> genai.Client:
-    if not settings.project or not settings.credentials_path:
+    if settings.gemini_api_key:
+        return genai.Client(api_key=settings.gemini_api_key)
+    if not settings.project or not (settings.credentials_path or settings.credentials_json):
         raise RuntimeError("GCP_PROJECT and VERTEX_SERVICE_ACCOUNT_JSON are required")
-    credentials = service_account.Credentials.from_service_account_file(settings.credentials_path, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    if settings.credentials_json:
+        credentials = service_account.Credentials.from_service_account_info(json.loads(settings.credentials_json), scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    else:
+        credentials = service_account.Credentials.from_service_account_file(settings.credentials_path, scopes=["https://www.googleapis.com/auth/cloud-platform"])
     return genai.Client(vertexai=True, project=settings.project, location=settings.location, credentials=credentials, http_options=types.HttpOptions(api_version="v1"))
 
 
@@ -23,6 +29,13 @@ def translate(text: str, target_language: str = "English") -> dict:
     prompt = f"Translate the following event transcript into {target_language}. Preserve the meaning, speaker tone, and paragraph breaks. Return only the translation.\n\n{text[:120000]}"
     response = client().models.generate_content(model=settings.text_model, contents=prompt)
     return {"model": settings.text_model, "targetLanguage": target_language, "output": response.text or ""}
+
+
+def analyst_answer(question: str, sources: list[dict]) -> dict:
+    context = "\n\n".join(f"[{index + 1}] Session: {source.get('session_title') or source.get('session_id')} | Speaker: {source.get('speaker') or 'Unknown'} | Source: {source.get('snippet', '')}" for index, source in enumerate(sources[:12]))
+    prompt = f"Answer the event analyst question using only the supplied source excerpts. If the sources are insufficient, say so. Cite supporting excerpts with [1], [2] markers. Question: {question}\n\nSources:\n{context}"
+    response = client().models.generate_content(model=settings.text_model, contents=prompt)
+    return {"model": settings.text_model, "answer": response.text or "", "citations": sources[:12]}
 
 
 def transcribe(audio: bytes, mime_type: str = "audio/webm", language_codes: list[str] | None = None) -> dict:
