@@ -15,6 +15,41 @@ function activeSessionId() { return state.currentSessionId || state.data?.sessio
 function attendeeApi(path) { if (state.authenticated || !state.publicShareToken) return path; return `${path}${path.includes('?') ? '&' : '?'}share_token=${encodeURIComponent(state.publicShareToken)}`; }
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2600); }
 function showUtilityPanel(title, eyebrow, body) { document.querySelector('.utility-panel')?.remove(); document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop utility-panel"><div class="modal"><div class="eyebrow">${esc(eyebrow)}</div><h2>${esc(title)}</h2><div class="insight-list">${body}</div><div class="modal-actions"><button type="button" class="btn lime" data-action="close-modal">Close</button></div></div></div>`); }
+function globalSearchModal() {
+  document.querySelector('.modal-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', '<div class="modal-backdrop"><div class="modal search-modal"><div class="eyebrow">Event knowledge</div><h2>Search captured intelligence</h2><p>Search sessions, transcripts, takeaways, questions, summaries, reports, and generated content.</p><form id="global-search-form" class="search-form"><input name="query" type="search" minlength="2" required placeholder="Try sustainability, next action, or a speaker name" autofocus><button class="btn purple">Search ↗</button></form><div id="global-search-results" class="insight-list"><span class="muted">Enter at least two characters to search this event.</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button></div></div></div>');
+  document.querySelector('#global-search-form input')?.focus();
+}
+document.addEventListener('click', event => {
+  if (!event.target.closest('[data-action="global-search"]')) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  globalSearchModal();
+}, true);
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('#global-search-form');
+  if (!form) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const output = document.querySelector('#global-search-results');
+  const query = new FormData(form).get('query');
+  if (output) output.innerHTML = '<span class="muted">Searching event evidence…</span>';
+  try {
+    const results = await api(`/api/search?query=${encodeURIComponent(query)}&event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    if (!results.length) { if (output) output.innerHTML = '<span class="muted">No matching event evidence found.</span>'; return; }
+    if (output) output.innerHTML = results.map(item => `<article class="insight search-result"><span class="kind">${esc(item.type)} · score ${esc(item.score)}</span><strong>${esc(item.title || 'Event evidence')}</strong><p>${esc(item.snippet || '')}</p><small class="muted">${esc(item.session_title || 'Event-wide')} ${item.speaker ? `· ${esc(item.speaker)}` : ''}</small>${item.session_id ? `<button type="button" class="btn ghost" data-action="open-search-result" data-session-id="${esc(item.session_id)}">Open session ↗</button>` : ''}</article>`).join('');
+  } catch (error) { if (output) output.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}, true);
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-action="open-search-result"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  document.querySelector('.modal-backdrop')?.remove();
+  state.currentSessionId = button.dataset.sessionId || state.currentSessionId;
+  state.view = 'transcript';
+  render();
+}, true);
 function downloadCsv(filename, rows) { const source=rows||[]; if(!source.length)return notify('There is no data to export yet'); const keys=[...new Set(source.flatMap(row=>Object.keys(row)))]; const quote=value=>`"${String(Array.isArray(value)?value.join('; '):value??'').replaceAll('"','""')}"`; const content=[keys.join(','),...source.map(row=>keys.map(key=>quote(row[key])).join(','))].join('\n'); const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'})); const link=document.createElement('a'); link.href=url; link.download=filename; link.click(); URL.revokeObjectURL(url); notify(`${filename} downloaded`); }
 
 async function api(path, options = {}, retry = false) {
