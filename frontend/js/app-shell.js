@@ -543,8 +543,10 @@ document.addEventListener('click', async e => {
     document.querySelector('#capture-status').textContent = muted ? 'Muted' : 'Listening';
     notify(muted ? 'Microphone muted' : 'Microphone unmuted');
   } else if (captureAction === 'stop') {
-    if (window.__captureRecorder?.state === 'recording') window.__captureRecorder.stop();
+    if (['recording', 'paused'].includes(window.__captureRecorder?.state)) window.__captureRecorder.stop();
     window.__captureStream?.getTracks().forEach(track => track.stop());
+    window.__captureStream = null;
+    window.__captureRecorder = null;
     await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/stop`, {method:'POST'}).catch(() => null);
     document.querySelector('#capture-status').textContent = 'Processing';
     document.querySelector('[data-capture-action="start"]').disabled = false;
