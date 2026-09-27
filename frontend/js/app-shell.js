@@ -263,7 +263,8 @@ document.addEventListener('submit', async event => {
 
 // Keep public auth links reliable even when the landing page is loaded directly.
 document.addEventListener('click', event => {
-  const authTab = event.target.closest('[data-auth-tab]');
+  const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+  const authTab = target?.closest('[data-auth-tab]');
   if (authTab) {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -272,7 +273,7 @@ document.addEventListener('click', event => {
     render();
     return;
   }
-  const link = event.target.closest('[data-view-link="auth"]');
+  const link = target?.closest('[data-view-link="auth"]');
   if (!link || state.authenticated) return;
   event.preventDefault();
   event.stopImmediatePropagation();
