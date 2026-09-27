@@ -359,6 +359,25 @@ def _supabase_role(user_id: str) -> str:
     return ""
 
 
+async def _websocket_authenticated(websocket: WebSocket) -> bool:
+    """Validate the bearer token used by the live capture bridge."""
+    authorization = websocket.headers.get("authorization", "")
+    token = authorization.removeprefix("Bearer ").strip() or websocket.query_params.get("token", "").strip()
+    if not token:
+        return False
+    if not settings.supabase_url:
+        return bool(demo_store.setdefault("auth_sessions", {}).get(token))
+    key = settings.supabase_anon_key or settings.supabase_key
+    if not key:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"{settings.supabase_url}/auth/v1/user", headers={"apikey": key, "Authorization": f"Bearer {token}"})
+        return response.is_success
+    except httpx.HTTPError:
+        return False
+
+
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
@@ -1148,8 +1167,11 @@ def capture_text(request: CaptureRequest) -> dict:
 
 @app.websocket(f"{settings.api_prefix}/ws/capture/{{session_id}}")
 async def capture_socket(websocket: WebSocket, session_id: str) -> None:
-    """Accept live text chunks from a venue bridge or meeting integration."""
+    """Accept authenticated live text chunks from a venue bridge or meeting integration."""
     await websocket.accept()
+    if not await _websocket_authenticated(websocket):
+        await websocket.close(code=1008, reason="Organizer authentication is required")
+        return
     try:
         while True:
             payload = await websocket.receive_json()

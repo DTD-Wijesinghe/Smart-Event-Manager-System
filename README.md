@@ -100,7 +100,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/transcript-segments/{segment_id}/translations` - read saved translations for a segment
 - `GET /api/transcripts/export?format=txt|srt|vtt`
 - `POST /api/capture/text` - save a live text chunk from a browser, venue bridge, or meeting bot
-- `WS /api/ws/capture/{session_id}` - accept live chunks and return persisted transcript/insight events
+- `WS /api/ws/capture/{session_id}?token=ACCESS_TOKEN` - accept authenticated live chunks and return persisted transcript/insight events. Browser WebSocket clients can pass the access token in the query string because the WebSocket API does not allow custom Authorization headers; use TLS in production and never log the URL.
 - `GET /api/questions?session_id=...`
 - `POST /api/questions` and `POST /api/questions/{question_id}/votes`
 - `GET /api/polls?session_id=...`, `POST /api/polls`, `PATCH /api/polls/{poll_id}`, and `POST /api/poll-responses` — poll results include live option counts and repeated identified votes are rejected
