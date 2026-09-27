@@ -138,6 +138,29 @@ html,body{max-width:100%;overflow-x:hidden}
   .screen-bottom{display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding-top:15px;line-height:1.45}.screen-bottom .btn{margin-top:0;width:100%;text-align:center}
   .auth-view{margin:-22px -16px 0;min-height:calc(100vh - 60px);display:flex;flex-direction:column}.auth-art{padding:48px 24px 34px;min-height:auto;flex:0 0 auto}.auth-art h1{font-size:clamp(44px,13vw,70px);line-height:.9;margin:16px 0}.auth-art p{font-size:15px;line-height:1.5}.auth-orbit{width:300px;height:300px;right:-160px;top:14%;opacity:.75}.auth-proof{position:relative;left:auto;right:auto;bottom:auto;margin-top:28px;line-height:1.5;flex-wrap:wrap}.auth-card{margin:18px 16px 28px;width:calc(100% - 32px);padding:18px}.auth-form h2{font-size:25px}.auth-tabs{overflow:auto;white-space:nowrap}.auth-tab{flex:0 0 auto}
 }
+
+/* Translation playback control */
+.translation-output .listen-translation{margin-top:12px;padding:9px 13px;font-size:11px}
+
+/* Final landing-page readability pass: keep the editorial look, improve scanning. */
+.marketing .landing-hero{padding-top:58px;padding-bottom:78px;gap:48px}
+.marketing .hero-copy{max-width:900px}
+.marketing .hero-copy h1{font-size:clamp(58px,9.2vw,128px);letter-spacing:-.085em;line-height:.92;margin:20px 0 30px;max-width:900px;text-wrap:balance}
+.marketing .hero-copy h1 span{display:inline-block;line-height:.96}
+.marketing .hero-copy>p{font-size:clamp(17px,1.65vw,21px);line-height:1.58;max-width:620px;color:#5f606c}
+.marketing .hero-copy .actions{margin-top:30px;gap:18px;align-items:center}
+.marketing .hero-copy .actions .btn{font-size:13px;padding:15px 22px}
+.marketing .landing-text-link{font-size:14px;line-height:1.35;color:#252536}
+.marketing .hero-proof{font-size:11px;line-height:1.5;margin-top:30px}
+@media(max-width:800px){
+  .marketing .landing-hero{padding-top:48px;padding-bottom:52px;gap:30px}
+  .marketing .hero-copy{text-align:center}
+  .marketing .hero-copy .eyebrow{justify-content:center}
+  .marketing .hero-copy h1{font-size:clamp(52px,15vw,92px);line-height:.94;letter-spacing:-.075em;margin:18px auto 24px}
+  .marketing .hero-copy>p{font-size:17px;line-height:1.55;max-width:570px;margin-left:auto;margin-right:auto}
+  .marketing .hero-copy .actions{justify-content:center;margin-top:25px}
+  .marketing .hero-proof{justify-content:center}
+}
 @media(prefers-reduced-motion:reduce){.screen-signal i,.attendee-card,.auth-card,.attendee-tiles article,.auth-art h1,.screen-content h1,.attendee-hero h1,.marketing *{animation:none!important;transition:none!important}}
 /* Mobile hero collision fix: keep copy and live visual in normal document flow. */
 @media(max-width:800px){
