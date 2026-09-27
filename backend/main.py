@@ -436,7 +436,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-native-pptx", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-office-exports", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1399,14 +1399,46 @@ def _pptx_bytes(title: str, output: str, primary: str = "7568f3") -> bytes:
     return buffer.getvalue()
 
 
+def _docx_bytes(title: str, output: str) -> bytes:
+    """Create a lightweight native DOCX from grounded generated content."""
+    def esc_xml(value: object) -> str:
+        return html_escape(str(value), quote=False)
+    paragraphs = [f'<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>{esc_xml(title)}</w:t></w:r></w:p>']
+    for raw in output.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = re.match(r"^#{1,3}\s+(.+)$", line)
+        if heading:
+            paragraphs.append(f'<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>{esc_xml(heading.group(1))}</w:t></w:r></w:p>')
+        else:
+            bullet = bool(re.match(r"^(?:[-*•]|\d+[.)])\s+", line))
+            text = re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", line)
+            style = '<w:pStyle w:val="ListBullet"/>' if bullet else ''
+            paragraphs.append(f'<w:p><w:pPr>{style}</w:pPr><w:r><w:t>{esc_xml(text)}</w:t></w:r></w:p>')
+    document = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{"".join(paragraphs)}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>'
+    styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:rPr><w:b/><w:sz w:val="40"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:rPr><w:b/><w:sz w:val="30"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="ListBullet"><w:name w:val="List Bullet"/><w:basedOn w:val="Normal"/><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr></w:style></w:styles>'
+    content_types = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'
+    package_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+    document_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as package:
+        package.writestr("[Content_Types].xml", content_types)
+        package.writestr("_rels/.rels", package_rels)
+        package.writestr("word/document.xml", document)
+        package.writestr("word/styles.xml", styles)
+        package.writestr("word/_rels/document.xml.rels", document_rels)
+    return buffer.getvalue()
+
+
 @app.get(f"{settings.api_prefix}/content/assets/{{asset_id}}/export", response_model=None)
 def export_content_asset(asset_id: str, format: str = "markdown"):
     asset = next((row for row in list_items("generated_assets") if row.get("id") == asset_id), None)
     if not asset:
         raise HTTPException(status_code=404, detail="Content asset not found")
     normalized = format.lower()
-    if normalized not in {"markdown", "json", "txt", "html", "pptx"}:
-        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, txt, html, or pptx")
+    if normalized not in {"markdown", "json", "txt", "html", "pptx", "docx"}:
+        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, txt, html, pptx, or docx")
     content = asset.get("content") if isinstance(asset.get("content"), dict) else {"output": asset.get("content", "")}
     title = asset.get("title") or "Generated event asset"
     safe_name = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "event-asset"
@@ -1423,6 +1455,8 @@ def export_content_asset(asset_id: str, format: str = "markdown"):
         event = next((row for row in list_items("events") if row.get("id") == asset.get("event_id")), {})
         brand = get_brand_kit(event.get("organization_id") or "org-demo")
         return Response(content=_pptx_bytes(title, output, brand.get("primary_color", "#7568f3")), media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", headers=headers)
+    if normalized == "docx":
+        return Response(content=_docx_bytes(title, output), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers=headers)
     if normalized == "txt":
         return PlainTextResponse(output, media_type="text/plain", headers=headers)
     body = f"# {title}\n\n- **Type:** {asset.get('asset_type', 'content')}\n- **Status:** {asset.get('status', 'draft')}\n\n{output}\n"
