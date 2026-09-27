@@ -801,12 +801,28 @@ def event_intelligence(event_id: str | None = None) -> dict:
 
 
 def search_knowledge(query: str, event_id: str | None = None) -> list[dict]:
-    """Search the shared event knowledge layer and return traceable results."""
-    terms = {part for part in query.lower().split() if len(part) > 1}
+    """Search normalized event evidence and return traceable, ranked results.
+
+    This is the provider-neutral retrieval layer used before Gemini. It keeps
+    the system useful in demo mode while making normalized transcript segments,
+    takeaways, questions, summaries, and reports first-class evidence sources.
+    """
+    normalized_query = " ".join(query.lower().split())
+    terms = {part for part in re.findall(r"[a-z0-9][a-z0-9'-]{1,}", normalized_query)}
     if not terms:
         return []
     sessions = {item.get("id"): item for item in list_items("sessions")}
-    collections = [("session", list_items("sessions")), ("transcript", list_items("transcripts")), ("insight", list_items("insights")), ("asset", list_items("generated_assets"))]
+    collections = [
+        ("session", list_items("sessions")),
+        ("transcript", list_items("transcripts")),
+        ("transcript_segment", list_items("transcript_segments")),
+        ("insight", list_items("insights")),
+        ("takeaway", list_items("takeaways")),
+        ("question", list_items("questions")),
+        ("summary", list_items("summaries")),
+        ("asset", list_items("generated_assets")),
+        ("report", list_items("reports")),
+    ]
     results: list[dict] = []
     for kind, rows in collections:
         for row in rows:
@@ -814,10 +830,15 @@ def search_knowledge(query: str, event_id: str | None = None) -> list[dict]:
                 continue
             searchable = " ".join(str(row.get(key, "")) for key in ("title", "name", "text", "body", "summary", "content", "asset_type")).lower()
             score = sum(1 for term in terms if term in searchable)
+            if normalized_query and normalized_query in searchable:
+                score += 3
+            if kind == "transcript_segment":
+                score += 1
             if not score:
                 continue
             session = sessions.get(row.get("session_id")) or sessions.get(row.get("id"))
-            results.append({"type": kind, "score": score, "id": row.get("id"), "title": row.get("title") or row.get("name") or (row.get("text") or row.get("body") or "").split(".", 1)[0], "snippet": (row.get("text") or row.get("body") or row.get("summary") or str(row.get("content", "")))[:360], "session_id": row.get("session_id") or row.get("id"), "session_title": session.get("title") if session else None, "speaker": row.get("speaker"), "created_at": row.get("created_at")})
+            snippet = row.get("text") or row.get("body") or row.get("summary") or str(row.get("content", ""))
+            results.append({"type": kind, "score": score, "id": row.get("id"), "title": row.get("title") or row.get("name") or snippet.split(".", 1)[0], "snippet": str(snippet)[:360], "session_id": row.get("session_id") or row.get("id"), "session_title": session.get("title") if session else None, "speaker": row.get("speaker"), "created_at": row.get("created_at"), "source_type": kind, "source_id": row.get("id")})
     return sorted(results, key=lambda item: (item["score"], item.get("created_at") or ""), reverse=True)[:50]
 
 
