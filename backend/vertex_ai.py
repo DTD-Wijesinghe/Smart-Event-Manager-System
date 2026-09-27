@@ -40,6 +40,12 @@ def generate_content(text: str, target_language: str = "English", asset_type: st
     return {"model": settings.text_model, "targetLanguage": target_language, "assetType": asset_type, "output": response.text or ""}
 
 
+def rewrite_content(text: str, instruction: str, target_language: str = "English", asset_type: str = "attendee_recap") -> dict:
+    prompt = f"You are editing a Smart Event Manager event asset. Rewrite the supplied asset according to the editor instruction. Keep every factual claim grounded in the asset; do not add facts, names, quotes, or numbers. Preserve the useful structure and write in {target_language}. Asset type: {asset_type}. Editor instruction: {instruction}\n\nCurrent asset:\n{text[:120000]}"
+    response = client().models.generate_content(model=settings.text_model, contents=prompt)
+    return {"model": settings.text_model, "targetLanguage": target_language, "assetType": asset_type, "output": response.text or ""}
+
+
 def translate(text: str, target_language: str = "English") -> dict:
     prompt = f"Translate the following event transcript into {target_language}. Preserve the meaning, speaker tone, and paragraph breaks. Return only the translation.\n\n{text[:120000]}"
     response = client().models.generate_content(model=settings.text_model, contents=prompt)

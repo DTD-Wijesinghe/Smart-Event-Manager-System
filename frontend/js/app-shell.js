@@ -1054,7 +1054,7 @@ document.addEventListener('click', async event => {
   const asset = state.assets.find(item => item.id === button.dataset.assetId);
   if (!asset) return notify('Asset is no longer available');
   const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || '';
-  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop asset-editor"><div class="modal"><div class="eyebrow">Content studio · versioned edit</div><h2>Edit generated asset</h2><p class="muted">Save a new version while keeping the current content attached to the event.</p><form id="asset-edit-form" class="form-grid" data-asset-id="${esc(asset.id)}"><label>Title<input name="title" required value="${esc(asset.title || '')}"></label><label>Content<textarea name="output" rows="12" required>${esc(output)}</textarea></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Save new version ↗</button></div></form></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop asset-editor"><div class="modal"><div class="eyebrow">Content studio · versioned edit</div><h2>Edit generated asset</h2><p class="muted">Save a new version manually or ask the grounded editor to reshape it without adding unsupported facts.</p><form id="asset-edit-form" class="form-grid" data-asset-id="${esc(asset.id)}"><label>Title<input name="title" required value="${esc(asset.title || '')}"></label><label>Editor instruction (optional)<input name="instruction" placeholder="Make this shorter and more executive"></label><label>Content<textarea name="output" rows="12" required>${esc(output)}</textarea></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button type="button" class="btn ghost" data-action="rewrite-asset">Apply AI edit</button><button class="btn lime">Save new version ↗</button></div></form></div></div>`);
 }, true);
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-action="copy-asset"]');
@@ -1109,6 +1109,23 @@ document.addEventListener('submit', async event => {
     await mountAssetLibrary();
     notify('New content version saved');
   } catch (error) { notify(error.message); }
+}, true);
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="rewrite-asset"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const form = document.querySelector('#asset-edit-form');
+  const instruction = form?.elements.instruction?.value?.trim();
+  if (!form || !instruction) return notify('Enter an editing instruction first');
+  button.disabled = true;
+  try {
+    const result = await api(`/api/content/assets/${encodeURIComponent(form.dataset.assetId)}/rewrite`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({instruction, targetLanguage:'English'})});
+    form.elements.output.value = result.output || form.elements.output.value;
+    if (result.asset) state.assets = state.assets.map(asset => asset.id === result.asset.id ? result.asset : asset);
+    notify(result.mode === 'fallback' ? 'Local editor preview applied' : 'Grounded AI edit applied');
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; }
 }, true);
 function showGeneratedContent(result) {
   document.querySelector('.generated-output')?.remove();

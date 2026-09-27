@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
 from .repository import analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, vote_question
-from .vertex_ai import analyst_answer, generate_content as generate_content_ai, summarize, transcribe, translate
+from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
 _RATE_STATE: dict[str, list[float]] = {}
@@ -198,6 +198,11 @@ class AssetUpdateRequest(BaseModel):
     title: str | None = None
     content: dict | None = None
     status: str | None = None
+
+
+class AssetRewriteRequest(BaseModel):
+    instruction: str
+    targetLanguage: str = "English"
 
 
 class SpeakerRequest(BaseModel):
@@ -1063,6 +1068,34 @@ def edit_generated_asset(asset_id: str, request: AssetUpdateRequest) -> dict:
         return update_generated_asset(asset_id, request.model_dump(exclude_none=True))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post(f"{settings.api_prefix}/content/assets/{{asset_id}}/rewrite")
+def rewrite_generated_asset(asset_id: str, request: AssetRewriteRequest) -> dict:
+    instruction = request.instruction.strip()
+    if len(instruction) < 3:
+        raise HTTPException(status_code=400, detail="Describe the change you want to make")
+    asset = next((row for row in list_items("generated_assets") if row.get("id") == asset_id), None)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Content asset not found")
+    content = asset.get("content") if isinstance(asset.get("content"), dict) else {"output": asset.get("content", "")}
+    current = str(content.get("output") or "").strip()
+    if not current:
+        raise HTTPException(status_code=400, detail="This asset has no editable content")
+    try:
+        result = rewrite_content_ai(current, instruction, request.targetLanguage, asset.get("asset_type", "attendee_recap"))
+        mode = "ai"
+    except Exception:
+        lowered = instruction.lower()
+        output = current
+        if "short" in lowered or "brief" in lowered:
+            output = current[:900].rstrip() + ("…" if len(current) > 900 else "")
+        if "professional" in lowered or "executive" in lowered:
+            output = output.replace("Key signal", "Key event signal").replace("Next action", "Recommended next action")
+        result = {"model": "local-fallback", "targetLanguage": request.targetLanguage, "assetType": asset.get("asset_type", "attendee_recap"), "output": output}
+        mode = "fallback"
+    updated = update_generated_asset(asset_id, {"content": {**content, "output": result.get("output", ""), "model": result.get("model", ""), "targetLanguage": request.targetLanguage}, "status": "draft"})
+    return {**result, "mode": mode, "asset": updated, "instruction": instruction}
 
 
 @app.get(f"{settings.api_prefix}/takeaways")
