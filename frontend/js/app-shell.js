@@ -280,7 +280,7 @@ teamPanelMarkup = function enhancedTeamPanelMarkup(team) {
 async function teamModal() {
   document.querySelector('.modal-backdrop')?.remove();
   const organizationId = state.data?.event?.organization_id || 'org-demo';
-  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal team-modal"><div class="eyebrow">Workspace access</div><h2>Team & roles</h2><p>Invite collaborators and keep event operations scoped to the right role.</p><div id="team-panel-content"><span class="muted">Loading workspace members…</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="open-integrations">Manage integrations</button></div><div class="organizer-divider"></div><form id="invite-form" class="form-grid"><label>Invite by email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="event_organizer">Event organizer</option><option value="content_editor">Content editor</option><option value="speaker">Speaker</option><option value="attendee">Attendee</option><option value="organization_admin">Organization admin</option></select></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button><button class="btn lime">Send invitation ↗</button></div></form></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal team-modal"><div class="eyebrow">Workspace access</div><h2>Team & roles</h2><p>Invite collaborators and keep event operations scoped to the right role.</p><div id="team-panel-content"><span class="muted">Loading workspace members…</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="open-integrations">Manage integrations</button><button type="button" class="btn ghost" data-action="open-admin-overview">Admin overview</button></div><div class="organizer-divider"></div><form id="invite-form" class="form-grid"><label>Invite by email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="event_organizer">Event organizer</option><option value="content_editor">Content editor</option><option value="speaker">Speaker</option><option value="attendee">Attendee</option><option value="organization_admin">Organization admin</option></select></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button><button class="btn lime">Send invitation ↗</button></div></form></div></div>`);
   document.querySelector('.team-modal')?.insertAdjacentHTML('afterbegin', '<form id="organization-form" class="form-grid"><div class="eyebrow">Organization settings</div><div class="capture-form-row"><label>Organization name<input name="name" required></label><label>Website<input name="website" type="url" placeholder="https://example.com"></label></div><div class="capture-form-row"><label>Industry<input name="industry" placeholder="Events and experiences"></label><label>Timezone<input name="timezone" placeholder="UTC"></label><label>Preferred language<input name="preferred_language" value="en" placeholder="en"></label></div><label>Logo URL<input name="logo_url" type="url" placeholder="https://…"></label><div class="modal-actions"><button class="btn ghost">Save organization settings</button></div></form>');
   try {
     const team = await api(`/api/team?organization_id=${encodeURIComponent(organizationId)}`);
@@ -313,6 +313,21 @@ async function integrationsModal() {
     }).join('');
   } catch (error) { panel.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+async function adminOverviewModal() {
+  document.querySelector('.modal-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', '<div class="modal-backdrop"><div class="modal admin-modal"><div class="eyebrow">Platform operations</div><h2>Admin overview</h2><p>System-wide counts and processing health for authorized super administrators.</p><div id="admin-overview-panel"><span class="muted">Loading platform metrics…</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Done</button></div></div></div>');
+  const panel = document.querySelector('#admin-overview-panel');
+  try {
+    const overview = await api('/api/admin/overview');
+    panel.innerHTML = `<div class="admin-kpis"><div class="admin-kpi"><small>Organizations</small><strong>${overview.organizations ?? 0}</strong></div><div class="admin-kpi"><small>Users</small><strong>${overview.users ?? 0}</strong></div><div class="admin-kpi"><small>Events</small><strong>${overview.events ?? 0}</strong></div><div class="admin-kpi"><small>Sessions</small><strong>${overview.sessions ?? 0}</strong></div></div><div class="insight-list"><div class="insight"><span class="kind">STORAGE</span><strong>${esc(overview.api?.storage_mode || 'unknown')} · ${overview.storage_files ?? 0} files</strong><p>AI configured: ${overview.api?.ai_configured ? 'yes' : 'no'}</p></div><div class="insight"><span class="kind">PROCESSING</span><strong>${overview.jobs?.completed ?? 0} completed · ${overview.jobs?.running ?? 0} running</strong><p>${overview.jobs?.queued ?? 0} queued · ${overview.jobs?.failed ?? 0} failed</p></div><div class="insight"><span class="kind">AI USAGE</span><strong>${overview.ai_usage?.generated_assets ?? 0} generated assets</strong><p>${overview.ai_usage?.analyst_messages ?? 0} analyst messages recorded.</p></div></div>`;
+  } catch (error) { panel.innerHTML = `<div class="insight"><span class="kind">ACCESS</span><strong>Admin permission required</strong><p>${esc(error.message)}</p></div>`; }
+}
+document.addEventListener('click', event => {
+  if (!event.target.closest('[data-action="open-admin-overview"]')) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  adminOverviewModal();
+}, true);
 document.addEventListener('click', event => {
   if (!event.target.closest('[data-action="open-integrations"]')) return;
   event.preventDefault();
