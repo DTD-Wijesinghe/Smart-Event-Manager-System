@@ -786,14 +786,28 @@ def moderate_question_route(question_id: str, request: QuestionModerationRequest
 def get_polls(session_id: str | None = None) -> list[dict]:
     polls = list_items("polls")
     options = list_items("poll_options")
-    return [{**item, "options": sorted([option for option in options if option.get("poll_id") == item.get("id")], key=lambda option: option.get("sort_order", 0))} for item in polls if not session_id or item.get("session_id") == session_id]
+    responses = list_items("poll_responses")
+    result = []
+    for item in polls:
+        if session_id and item.get("session_id") != session_id:
+            continue
+        poll_options = sorted([option for option in options if option.get("poll_id") == item.get("id")], key=lambda option: option.get("sort_order", 0))
+        poll_responses = [response for response in responses if response.get("poll_id") == item.get("id")]
+        counts = {option.get("id"): 0 for option in poll_options}
+        for response in poll_responses:
+            if response.get("option_id") in counts:
+                counts[response["option_id"]] += 1
+        result.append({**item, "options": [{**option, "responses": counts.get(option.get("id"), 0)} for option in poll_options], "results": {"total_responses": len(poll_responses), "text_responses": [response.get("answer_text") for response in poll_responses if response.get("answer_text")]}})
+    return result
 
 
 @app.post(f"{settings.api_prefix}/polls", status_code=201)
 def add_poll(request: PollRequest) -> dict:
     if len(request.question.strip()) < 3: raise HTTPException(status_code=400, detail="Poll question is too short")
     if request.poll_type in {"single", "multiple", "yes_no"} and len(request.options) < 2: raise HTTPException(status_code=400, detail="At least two poll options are required")
-    return create_poll(request.model_dump())
+    created = create_poll(request.model_dump())
+    options = sorted([option for option in list_items("poll_options") if option.get("poll_id") == created.get("id")], key=lambda option: option.get("sort_order", 0))
+    return {**created, "options": options, "results": {"total_responses": 0, "text_responses": []}}
 
 
 @app.patch(f"{settings.api_prefix}/polls/{{poll_id}}")
@@ -810,6 +824,10 @@ def add_poll_response(request: PollResponseRequest) -> dict:
         raise HTTPException(status_code=404, detail="Poll not found")
     if not poll.get("is_open"):
         raise HTTPException(status_code=409, detail="This poll is closed")
+    if request.attendee_id != "anonymous":
+        already_voted = any(item.get("poll_id") == request.poll_id and item.get("attendee_id") == request.attendee_id for item in list_items("poll_responses"))
+        if already_voted:
+            raise HTTPException(status_code=409, detail="You have already responded to this poll")
     selected = request.option_ids or ([request.option_id] if request.option_id else [])
     valid_options = {item.get("id") for item in list_items("poll_options") if item.get("poll_id") == request.poll_id}
     if any(option_id not in valid_options for option_id in selected):

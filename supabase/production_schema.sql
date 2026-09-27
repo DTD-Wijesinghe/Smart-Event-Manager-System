@@ -174,6 +174,7 @@ create index if not exists transcript_segments_session_time_idx on public.transc
 create index if not exists transcript_segment_revisions_segment_idx on public.transcript_segment_revisions(transcript_segment_id, created_at desc);
 create index if not exists sessions_event_time_idx on public.sessions(event_id, starts_at);
 create index if not exists questions_session_status_idx on public.questions(session_id, status, created_at desc);
+create index if not exists poll_responses_poll_attendee_idx on public.poll_responses(poll_id, attendee_id);
 create index if not exists jobs_status_idx on public.processing_jobs(status, created_at);
 create index if not exists assets_event_idx on public.generated_assets(event_id, created_at desc);
 create index if not exists reports_event_idx on public.reports(event_id, created_at desc);

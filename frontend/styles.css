@@ -30,3 +30,79 @@
 .landing-brand .logo,.attendee-brand .logo{flex:none}
 .landing-brand>span:last-child,.attendee-brand>span:last-child{display:flex;flex-direction:column;gap:2px;letter-spacing:-.055em;font-weight:800;line-height:1.05}
 .landing-brand>span:last-child b,.attendee-brand>span:last-child b{display:block}
+/* Large signature wordmark for the landing header. */
+.marketing .landing-nav{padding:24px 42px}
+.marketing .landing-brand{gap:13px;font-size:16px;text-transform:none;letter-spacing:-.055em}
+.marketing .landing-brand .logo{width:64px;height:64px;border-radius:19px;background:radial-gradient(circle at 32% 28%,#a69bff 0,#7568f3 38%,#30285f 100%);box-shadow:0 14px 28px rgba(74,59,150,.29)}
+.marketing .landing-brand .logo:before{width:22px;height:22px;border:2px solid #ffe28a;border-radius:50%;transform:none;box-shadow:0 0 0 4px rgba(255,226,138,.12),inset 0 0 0 4px rgba(117,104,243,.35)}
+.marketing .landing-brand .logo:after{width:35px;height:15px;border:1px solid rgba(255,255,255,.58);border-radius:50%;background:none;transform:rotate(-42deg)}
+.marketing .landing-brand .logo i{width:8px;height:8px;border-radius:50%;transform:none;background:#ffe28a;box-shadow:0 0 14px rgba(255,226,138,.95)}
+.marketing .landing-brand .brand-name{font-size:23px;line-height:.92;letter-spacing:-.07em;text-transform:none;gap:4px}
+.marketing .landing-brand .brand-name>span{color:#20202a;font-weight:800}
+.marketing .landing-brand .brand-name b{color:#7568f3;font-weight:900}
+.marketing .landing-brand>span:last-child{font-size:23px;line-height:.92;letter-spacing:-.07em;text-transform:none!important;gap:4px}
+.marketing .landing-brand>span:last-child b{color:#7568f3;font-weight:900}
+.marketing .landing-links{font-size:11px}
+@media(max-width:800px){.marketing .landing-nav{padding:18px 20px}.marketing .landing-brand .logo{width:44px;height:44px}.marketing .landing-brand .brand-name{font-size:16px}.marketing .landing-links{display:none}}
+/* Editorial event-studio direction inspired by the reference site: warm paper, oversized type, quiet navigation, and slow motion. */
+.marketing .marketing-page{background:#f4eadc;color:#20202a;--editorial-ink:#20202a;--editorial-muted:#817b73;--editorial-line:rgba(32,32,42,.16)}
+.marketing .landing-nav{max-width:none;padding:26px 42px;position:relative;z-index:2}
+.marketing .landing-brand{font-size:13px;letter-spacing:-.04em;text-transform:uppercase;gap:10px}
+.marketing .landing-brand .logo{width:32px;height:32px;border-radius:10px;box-shadow:0 6px 16px rgba(117,104,243,.2)}
+.marketing .landing-brand .brand-name{font-size:12px;letter-spacing:.02em;line-height:1.08}
+.marketing .landing-links{gap:24px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#91887d}
+.marketing .landing-actions{gap:9px}
+.marketing .landing-login,.marketing .landing-register{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--editorial-ink);border:0}
+.marketing .landing-register{border-color:var(--editorial-line);border-radius:99px;padding:10px 16px}
+.marketing .landing-actions .btn{display:none}
+.marketing .landing-hero{max-width:none;min-height:calc(100vh - 82px);padding:70px 7vw 90px;display:flex;flex-direction:column;justify-content:center;gap:42px;text-align:left;align-items:stretch;position:relative}
+.marketing .hero-copy{max-width:1000px;position:relative;z-index:1}
+.marketing .hero-copy .eyebrow{font-size:10px;letter-spacing:.18em;color:#9b6f49;text-transform:uppercase}
+.marketing .hero-copy .eyebrow i{background:#d5824c;box-shadow:0 0 0 5px rgba(213,130,76,.13)}
+.marketing .hero-copy h1{font-size:clamp(70px,13vw,190px);letter-spacing:-.105em;line-height:.8;margin:24px 0 35px;max-width:920px}
+.marketing .hero-copy h1 span{color:#7568f3;display:inline-block;animation:editorialFloat 7s ease-in-out infinite}
+.marketing .hero-copy>p{font-size:15px;line-height:1.65;color:#726c65;max-width:470px;margin:0}
+.marketing .hero-copy .actions{margin-top:27px;justify-content:flex-start}
+.marketing .hero-copy .actions .btn{display:inline-flex;border-radius:99px;padding:13px 18px;background:#20202a;color:#fff;box-shadow:none;font-size:11px;letter-spacing:.03em}
+.marketing .landing-text-link{font-size:11px;color:#625d57}
+.marketing .hero-proof{justify-content:flex-start;margin-top:33px;color:#9a9186;font-size:10px;letter-spacing:.02em}
+.marketing .hero-visual{position:absolute;width:min(54vw,670px);height:min(58vw,610px);right:4vw;bottom:2vh;min-height:0;z-index:0;pointer-events:none}
+.marketing .hero-visual:before{inset:15% 3% 0 17%;border-radius:50%;filter:sepia(.2) saturate(.7);opacity:.18;mix-blend-mode:multiply;animation:editorialDrift 13s ease-in-out infinite}
+.marketing .visual-glow{width:330px;height:330px;right:12%;top:6%;background:#d6a1ff;filter:blur(80px);opacity:.17;animation:editorialPulse 8s ease-in-out infinite}
+.marketing .visual-card{inset:13% 9% 10% 18%;border-radius:4px;background:linear-gradient(145deg,rgba(32,32,42,.97),rgba(52,47,73,.96));padding:26px;box-shadow:22px 30px 70px rgba(32,32,42,.22);transform:rotate(3deg);animation:editorialCard 9s ease-in-out infinite}
+.marketing .visual-top{font-size:9px;color:#c2bacd}
+.marketing .visual-wave{height:42%;margin:26% 4% 8%;gap:7px}
+.marketing .visual-wave i{background:linear-gradient(180deg,#ffd166,#7568f3);border-radius:99px 99px 3px 3px;animation:signalBreathe 2.7s ease-in-out infinite alternate}
+.marketing .visual-wave i:nth-child(3n){animation-delay:-.7s}.marketing .visual-wave i:nth-child(4n){animation-delay:-1.4s}
+.marketing .visual-insight{border-radius:2px;padding:17px;background:rgba(255,255,255,.05)}
+.marketing .visual-insight strong{font-size:clamp(17px,2.2vw,28px);line-height:.95}
+.marketing .floating-card{border-radius:2px;padding:13px 15px;box-shadow:8px 15px 28px rgba(32,32,42,.16);animation:editorialFloat 6s ease-in-out infinite}
+.marketing .float-a{right:0;top:5%;background:#f3c969}.marketing .float-b{left:4%;bottom:0;background:#dd9270;animation-delay:-2s}
+.marketing .landing-strip{background:#20202a;color:#a7a09a;padding:15px 7vw;justify-content:space-between;gap:20px;font-size:9px;letter-spacing:.18em}
+.marketing .landing-strip span:first-child{color:#f3c969}
+.marketing .landing-section{max-width:none;padding:130px 7vw}
+.marketing .landing-section-head{max-width:1180px;margin:0 auto 54px;align-items:end}
+.marketing .landing-section-head h2{font-size:clamp(50px,8vw,118px);line-height:.82;letter-spacing:-.11em}
+.marketing .landing-section-head>p{font-size:14px;line-height:1.6;color:#817a72}
+.marketing .landing-flow{max-width:1180px;margin:auto;gap:10px}
+.marketing .landing-flow article{border:1px solid var(--editorial-line);border-radius:2px;min-height:360px;padding:24px;background:#eadecd!important;color:var(--editorial-ink)!important;box-shadow:none!important;transition:transform .45s ease,background .45s ease}
+.marketing .landing-flow article:hover{transform:translateY(-10px) rotate(-1deg);background:#f8f0e5!important}
+.marketing .flow-symbol{font-size:54px;margin-top:105px;color:#7568f3}
+.marketing .landing-flow h3{font-size:38px}.marketing .landing-flow p{color:#777068!important}.marketing .landing-flow a{color:#7568f3!important}
+.marketing .dark-section{background:#20202a;color:#f8f2e9;padding-left:7vw;padding-right:7vw}
+.marketing .dark-section .landing-section-head>p{color:#aaa5a0}
+.marketing .platform-grid{max-width:1180px;margin:auto;gap:10px}
+.marketing .platform-feature{border-radius:2px;min-height:270px}.marketing .feature-large{background:linear-gradient(145deg,#7568f3,#3d376e)}
+.marketing .platform-feature h3{font-size:44px}.marketing .feature-orbit{animation:orbitSpin 18s linear infinite}
+.marketing .case-grid{max-width:1180px;margin:auto;gap:10px}.marketing .case-grid>div{border-radius:2px!important;min-height:260px;background:#eadecd!important;color:var(--editorial-ink)!important;border:1px solid var(--editorial-line)!important;transition:transform .45s ease}
+.marketing .case-grid>div:hover{transform:translateY(-8px)}.marketing .case-grid span{color:#9b6f49}.marketing .case-grid h3{font-size:31px}.marketing .case-grid p{color:#777068!important}
+.marketing .landing-cta{max-width:1180px;margin:0 auto 110px;border-radius:2px;padding:70px 7vw;background:#7568f3;box-shadow:0 22px 60px rgba(65,52,106,.2)}
+.marketing .landing-cta h2{font-size:clamp(42px,7vw,94px)}
+.marketing .landing-footer{max-width:1180px;color:#817a72}.marketing .landing-footer button{color:#817a72}
+@keyframes editorialFloat{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-10px,0)}}
+@keyframes editorialDrift{0%,100%{transform:translate(0,0) rotate(-2deg)}50%{transform:translate(-18px,12px) rotate(3deg)}}
+@keyframes editorialPulse{0%,100%{transform:scale(.9);opacity:.12}50%{transform:scale(1.15);opacity:.25}}
+@keyframes editorialCard{0%,100%{transform:rotate(3deg) translateY(0)}50%{transform:rotate(1deg) translateY(-12px)}}
+@keyframes signalBreathe{from{transform:scaleY(.72);opacity:.7}to{transform:scaleY(1);opacity:1}}
+@keyframes orbitSpin{to{transform:rotate(360deg)}}
+@media(max-width:800px){.marketing .landing-nav{padding:20px}.marketing .landing-hero{padding:58px 20px 70px;min-height:780px}.marketing .hero-copy h1{font-size:clamp(64px,18vw,110px)}.marketing .hero-visual{width:100%;height:390px;right:0;bottom:25px}.marketing .visual-card{inset:13% 4% 9% 8%}.marketing .landing-strip{overflow:hidden;white-space:nowrap;justify-content:flex-start}.marketing .landing-section{padding:85px 20px}.marketing .landing-section-head h2{font-size:clamp(58px,17vw,105px)}.marketing .landing-flow,.marketing .platform-grid,.marketing .case-grid{grid-template-columns:1fr}.marketing .landing-flow article{min-height:300px}.marketing .landing-cta{margin:0 20px 75px;padding:45px 28px}.marketing .landing-footer{padding:0 20px 30px}}

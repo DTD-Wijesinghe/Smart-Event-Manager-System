@@ -103,7 +103,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `WS /api/ws/capture/{session_id}` - accept live chunks and return persisted transcript/insight events
 - `GET /api/questions?session_id=...`
 - `POST /api/questions` and `POST /api/questions/{question_id}/votes`
-- `GET /api/polls?session_id=...`, `POST /api/polls`, and `POST /api/poll-responses`
+- `GET /api/polls?session_id=...`, `POST /api/polls`, `PATCH /api/polls/{poll_id}`, and `POST /api/poll-responses` — poll results include live option counts and repeated identified votes are rejected
 - `POST /api/feedback`
 - `GET /api/analytics?event_id=...`
 - `GET /api/intelligence?event_id=...` - evidence-linked event-wide themes and cross-session relationships

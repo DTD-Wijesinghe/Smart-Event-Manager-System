@@ -46,14 +46,14 @@ async function load() {
   state.view = 'landing';
   render();
   try {
-    state.data = await api('/api/dashboard');
     const shareToken = new URLSearchParams(location.search).get('share');
     if (shareToken) {
       const shared = await api(`/api/public/share/${encodeURIComponent(shareToken)}`);
-      state.data = {...state.data, event: shared.event || state.data.event, sessions: shared.sessions || state.data.sessions, share_links: [shared.link]};
+      state.data = {event: shared.event || null, sessions: shared.sessions || [], share_links: shared.link ? [shared.link] : [], attendees: [], insights: [], transcripts: [], analytics: {}, mode: 'public'};
       state.view = 'attendee';
-    } else if (state.authenticated) {
-      state.view = 'overview';
+    } else {
+      state.data = await api('/api/dashboard');
+      if (state.authenticated) state.view = 'overview';
     }
     state.currentSessionId = activeSessionId();
     if (state.view !== 'landing') render();
@@ -585,7 +585,7 @@ async function mountOrganizerAudience() {
     const list = document.querySelector('#organizer-question-list');
     if (list) list.innerHTML = questions.length ? questions.map(question => `<article class="insight"><span class="kind">${esc(question.status || 'pending')} · ${question.votes || 0} votes ${question.pinned ? '· pinned' : ''}</span><strong>${esc(question.body)}</strong><div class="actions-row compact-actions"><button class="btn lime" data-question-moderate="${esc(question.id)}" data-moderation-status="approved">Approve</button><button class="btn ghost" data-question-moderate="${esc(question.id)}" data-moderation-status="answered">Mark answered</button><button class="btn ghost" data-question-moderate="${esc(question.id)}" data-moderation-pinned="${question.pinned ? 'false' : 'true'}">${question.pinned ? 'Unpin' : 'Pin'}</button><button class="btn ghost" data-question-moderate="${esc(question.id)}" data-moderation-status="dismissed">Dismiss</button></div></article>`).join('') : '<span class="muted">No questions are waiting for review.</span>';
     const pollList = document.querySelector('#organizer-poll-list');
-    if (pollList) pollList.innerHTML = polls.length ? polls.map(poll => `<article class="insight"><span class="kind">${poll.is_open ? 'OPEN' : 'CLOSED'} · ${esc(poll.poll_type || 'single')}</span><strong>${esc(poll.question)}</strong><small class="muted">${(poll.options || []).map(option => esc(option.label)).join(' · ') || 'Free response'}</small><div class="actions-row compact-actions"><button class="btn ${poll.is_open ? 'ghost' : 'lime'}" data-poll-toggle="${esc(poll.id)}" data-poll-open="${poll.is_open ? 'false' : 'true'}">${poll.is_open ? 'Close poll' : 'Open for attendees'}</button></div></article>`).join('') : '<span class="muted">No polls yet. Publish the first audience pulse above.</span>';
+    if (pollList) pollList.innerHTML = polls.length ? polls.map(poll => `<article class="insight"><span class="kind">${poll.is_open ? 'OPEN' : 'CLOSED'} · ${esc(poll.poll_type || 'single')} · ${poll.results?.total_responses || 0} responses</span><strong>${esc(poll.question)}</strong><small class="muted">${(poll.options || []).map(option => `${esc(option.label)} (${option.responses || 0})`).join(' · ') || 'Free response'}</small><div class="actions-row compact-actions"><button class="btn ${poll.is_open ? 'ghost' : 'lime'}" data-poll-toggle="${esc(poll.id)}" data-poll-open="${poll.is_open ? 'false' : 'true'}">${poll.is_open ? 'Close poll' : 'Open for attendees'}</button></div></article>`).join('') : '<span class="muted">No polls yet. Publish the first audience pulse above.</span>';
   } catch (error) { const list = document.querySelector('#organizer-question-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 async function mountAssetLibrary() {
@@ -655,7 +655,7 @@ async function mountAudienceData() {
     const questionFeed = document.querySelector('#question-feed');
     if (questionFeed) questionFeed.innerHTML = questions.length ? questions.map(question => `<div class="insight"><span class="kind">${question.status || 'pending'} · ${question.votes || 0} votes</span><p>${esc(question.body)}</p><button class="btn ghost" data-question-vote="${esc(question.id)}">Upvote</button></div>`).join('') : '<span class="muted">No audience questions yet.</span>';
     const pollFeed = document.querySelector('#poll-feed');
-    if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => { const options = (poll.options || []).map(option => `<label class="poll-option"><input type="${poll.poll_type === 'multiple' ? 'checkbox' : 'radio'}" name="${poll.poll_type === 'multiple' ? 'option_ids' : 'option_id'}" value="${esc(option.id)}" ${poll.poll_type === 'multiple' ? '' : 'required'}> ${esc(option.label)}</label>`).join(''); const response = poll.is_open ? `<form class="poll-response-form" data-poll-id="${esc(poll.id)}">${options || '<input name="answer_text" placeholder="Your response" required>'}<button class="btn lime">Respond ↗</button></form>` : '<span class="muted">Poll closed · results are retained by the event team.</span>'; return `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Closed poll'} · ${esc(poll.poll_type || 'single')}</span><strong>${esc(poll.question)}</strong>${response}</div>`; }).join('') : '';
+    if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => { const options = (poll.options || []).map(option => `<label class="poll-option"><input type="${poll.poll_type === 'multiple' ? 'checkbox' : 'radio'}" name="${poll.poll_type === 'multiple' ? 'option_ids' : 'option_id'}" value="${esc(option.id)}" ${poll.poll_type === 'multiple' ? '' : 'required'}> ${esc(option.label)}</label>`).join(''); const response = poll.is_open ? `<form class="poll-response-form" data-poll-id="${esc(poll.id)}">${options || '<input name="answer_text" placeholder="Your response" required>'}<button class="btn lime">Respond ↗</button></form>` : '<span class="muted">Poll closed · results are retained by the event team.</span>'; const results = poll.results?.total_responses ? `<small class="muted">${poll.results.total_responses} response${poll.results.total_responses === 1 ? '' : 's'} · ${(poll.options || []).map(option => `${esc(option.label)}: ${option.responses || 0}`).join(' · ')}</small>` : ''; return `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Closed poll'} · ${esc(poll.poll_type || 'single')}</span><strong>${esc(poll.question)}</strong>${response}${results}</div>`; }).join('') : '';
   } catch (error) { const feed = document.querySelector('#question-feed'); if (feed) feed.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 function mountAttendeeTabs() {
@@ -774,7 +774,7 @@ document.addEventListener('submit', async event => {
   const form = event.target.closest('.poll-response-form');
   if (!form) return;
   event.preventDefault();
-  try { const values = new FormData(form); await api('/api/poll-responses', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, option_id:values.get('option_id') || null, option_ids:values.getAll('option_ids'), answer_text:values.get('answer_text') || null})}); form.reset(); notify('Poll response recorded'); }
+  try { const values = new FormData(form); const voterKey = localStorage.getItem('smart-event-voter-id') || (crypto.randomUUID ? crypto.randomUUID() : `voter-${Date.now()}`); localStorage.setItem('smart-event-voter-id', voterKey); await api('/api/poll-responses', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, attendee_id:voterKey, option_id:values.get('option_id') || null, option_ids:values.getAll('option_ids'), answer_text:values.get('answer_text') || null})}); form.reset(); document.querySelector('.audience-data-panel')?.remove(); await mountAudienceData(); notify('Poll response recorded'); }
   catch (error) { notify(error.message); }
 }, true);
 
