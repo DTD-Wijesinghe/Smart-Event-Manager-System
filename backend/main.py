@@ -440,7 +440,11 @@ def register(request: AuthRequest) -> dict:
     if not response.is_success:
         detail = response.json().get("msg") or response.json().get("error_description") or "Registration failed"
         raise HTTPException(status_code=response.status_code, detail=detail)
-    return {"mode": "supabase", "session": response.json()}
+    payload = response.json()
+    session = payload.get("session") if isinstance(payload, dict) else None
+    if not session or not session.get("access_token"):
+        return {"mode": "supabase", "session": None, "requires_verification": True, "message": "Account created. Check your email to verify the account before logging in."}
+    return {"mode": "supabase", "session": session}
 
 
 @app.post(f"{settings.api_prefix}/auth/login")

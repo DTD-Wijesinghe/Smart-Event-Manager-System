@@ -315,6 +315,26 @@ document.addEventListener('click', e => {
   render();
 }, true);
 document.addEventListener('submit', async e => { if(e.target.id==='session-form'){e.preventDefault(); const payload=Object.fromEntries(new FormData(e.target)); payload.translation_languages=String(payload.translation_languages || 'en').split(',').map(item => item.trim()).filter(Boolean); await api('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); document.querySelector('.modal-backdrop')?.remove(); state.data=await api('/api/dashboard'); state.view='sessions'; render(); notify('Session added to the program'); return;} if(e.target.id==='login-form'){e.preventDefault();state.authenticated=true;await openWorkspace('Welcome back - organizer workspace ready');return} if(e.target.id==='register-form'){e.preventDefault();const f=new FormData(e.target);if(f.get('password')!==f.get('confirm')){notify('Passwords do not match');return}state.authenticated=true;await openWorkspace('Workspace created - welcome to Smart Event Manager');return} if(e.target.id==='forgot-form'){e.preventDefault();notify('If the email exists, a reset link is on its way');return} });
+// Respect Supabase email-confirmation mode: a signup without a session is not
+// an authenticated organizer session yet.
+document.addEventListener('submit', async event => {
+  const form = event.target;
+  if (!['login-form', 'register-form', 'forgot-form'].includes(form.id)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const fields = Object.fromEntries(new FormData(form));
+  try {
+    if (form.id === 'register-form' && fields.password !== fields.confirm) throw new Error('Passwords do not match');
+    const endpoint = form.id === 'login-form' ? '/api/auth/login' : form.id === 'register-form' ? '/api/auth/register' : '/api/auth/forgot-password';
+    const payload = form.id === 'forgot-form' ? {email: fields.email} : {email: fields.email, password: fields.password};
+    const result = await api(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    if (form.id === 'forgot-form') return notify('If the email exists, a reset link is on its way');
+    if (!result.session?.access_token) { state.authenticated = false; return notify(result.message || 'Check your email to verify the account before logging in.'); }
+    state.authenticated = true;
+    localStorage.setItem('smart-event-session', JSON.stringify(result.session));
+    await openWorkspace(form.id === 'login-form' ? 'Welcome back - organizer workspace ready' : 'Workspace created - welcome to Smart Event Manager');
+  } catch (error) { notify(error.message); }
+}, true);
 // Auth is handled by the backend/Supabase Auth. The capture-phase listener
 // keeps the existing UI and prevents the old demo-only submit handler below
 // from marking a user authenticated before the server accepts the request.
