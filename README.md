@@ -91,7 +91,11 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
 - The attendee portal is session-aware: attendees can switch sessions, and the selected session scopes its live transcript, Q&A, polls, feedback, and browser capture workflow.
 - `GET /api/transcripts?session_id=...` - read the live transcript stream, optionally scoped to a session; the transcript view polls this endpoint every five seconds
+- `GET /api/summaries?session_id=...&event_id=...` - read persisted session summaries
+- `POST /api/sessions/{session_id}/summary` - generate and persist an evidence-linked session summary
 - `GET /api/transcript-segments?session_id=...` - read normalized, time-aware transcript segments for a session
+- `PATCH /api/transcript-segments/{segment_id}` - correct a transcript line and save its previous/new text revision
+- `GET /api/transcript-segments/{segment_id}/revisions` - read transcript correction history
 - `POST /api/transcript-segments/{segment_id}/translate` - translate and persist one segment for a target language
 - `GET /api/transcript-segments/{segment_id}/translations` - read saved translations for a segment
 - `GET /api/transcripts/export?format=txt|srt|vtt`
@@ -133,7 +137,10 @@ For a ready-to-view workspace after the migration, optionally run `supabase/seed
 
 The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.
 
+Organizer APIs require a valid session. Public attendee routes remain available from a share link. Mutating organizer routes are role checked: `super_admin`, `organization_admin`, and `event_organizer` can operate the event workspace; `content_editor` can create and edit content/report outputs; speaker and attendee roles are read/public oriented.
+
 AI authentication supports two server-side options: set `GEMINI_API_KEY` for
 Gemini Developer API access, or set `GCP_PROJECT` plus
 `VERTEX_SERVICE_ACCOUNT_JSON` for Vertex AI. The Gemini key is never sent to
-the browser.
+the browser. Render's `render.yaml` declares `GEMINI_API_KEY` as a protected
+environment variable; set it in the Render dashboard rather than committing it.

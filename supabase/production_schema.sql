@@ -62,6 +62,10 @@ create table if not exists public.translations (
   id uuid primary key default gen_random_uuid(), transcript_segment_id uuid not null references public.transcript_segments(id) on delete cascade,
   language text not null, text text not null, created_at timestamptz not null default now(), unique (transcript_segment_id, language)
 );
+create table if not exists public.transcript_segment_revisions (
+  id uuid primary key default gen_random_uuid(), transcript_segment_id uuid not null references public.transcript_segments(id) on delete cascade,
+  previous_text text not null, new_text text not null, edited_by text, created_at timestamptz not null default now()
+);
 -- Compatibility table for the current REST API. The normalized transcript_segments
 -- table remains the source for future diarization/translation fan-out.
 create table if not exists public.transcripts (
@@ -94,7 +98,9 @@ create table if not exists public.topic_relations (
 );
 create table if not exists public.summaries (
   id uuid primary key default gen_random_uuid(), session_id uuid references public.sessions(id) on delete cascade,
-  event_id uuid references public.events(id) on delete cascade, content jsonb not null default '{}', model text, created_at timestamptz not null default now()
+  event_id uuid references public.events(id) on delete cascade, language text not null default 'English',
+  content jsonb not null default '{}', model text, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+  unique (session_id, language)
 );
 create table if not exists public.attendees (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
@@ -165,11 +171,13 @@ create table if not exists public.audit_logs (
 );
 
 create index if not exists transcript_segments_session_time_idx on public.transcript_segments(session_id, start_time_ms);
+create index if not exists transcript_segment_revisions_segment_idx on public.transcript_segment_revisions(transcript_segment_id, created_at desc);
 create index if not exists sessions_event_time_idx on public.sessions(event_id, starts_at);
 create index if not exists questions_session_status_idx on public.questions(session_id, status, created_at desc);
 create index if not exists jobs_status_idx on public.processing_jobs(status, created_at);
 create index if not exists assets_event_idx on public.generated_assets(event_id, created_at desc);
 create index if not exists reports_event_idx on public.reports(event_id, created_at desc);
+create index if not exists summaries_session_idx on public.summaries(session_id, created_at desc);
 
 drop trigger if exists organizations_updated_at on public.organizations;
 create trigger organizations_updated_at before update on public.organizations for each row execute function public.set_updated_at();
@@ -214,6 +222,7 @@ alter table public.feedback enable row level security;
 alter table public.brand_kits enable row level security;
 alter table public.generated_assets enable row level security;
 alter table public.generated_asset_versions enable row level security;
+alter table public.transcript_segment_revisions enable row level security;
 alter table public.reports enable row level security;
 alter table public.files enable row level security;
 alter table public.processing_jobs enable row level security;

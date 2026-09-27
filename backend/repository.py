@@ -3,7 +3,7 @@ import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
-TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "insights", "share_links", "transcripts", "transcript_segments", "translations", "takeaways", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs"}
+TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "insights", "share_links", "transcripts", "transcript_segments", "transcript_segment_revisions", "translations", "takeaways", "summaries", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs"}
 
 
 def storage_mode() -> str:
@@ -270,6 +270,34 @@ def create_transcript(payload: dict) -> dict:
 
 def list_transcript_segments(session_id: str | None = None) -> list[dict]:
     return [item for item in list_items("transcript_segments") if not session_id or item.get("session_id") == session_id]
+
+
+def update_transcript_segment(segment_id: str, text: str, editor: str = "organizer") -> dict:
+    segment = next((item for item in list_items("transcript_segments") if item.get("id") == segment_id), None)
+    if not segment:
+        raise KeyError("Transcript segment not found")
+    text = text.strip()
+    if not text:
+        raise ValueError("Transcript text is required")
+    revision = {"id": f"segment-revision-{len(demo_store['transcript_segment_revisions']) + 1:04d}", "transcript_segment_id": segment_id, "previous_text": segment.get("text", ""), "new_text": text, "edited_by": editor, "created_at": utc_now()}
+    demo_store["transcript_segment_revisions"].insert(0, revision)
+    segment["text"] = text
+    compatibility = next((row for row in demo_store["transcripts"] if row.get("segment_id") == segment_id), None)
+    if compatibility:
+        compatibility["text"] = text
+    if storage_mode() == "supabase" and not str(segment_id).startswith("seg-"):
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/transcript_segments?id=eq.{segment_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json={"text": text}, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                segment = {**segment, **rows[0]}
+        _remote_insert("transcript_segment_revisions", {key: value for key, value in revision.items() if key != "id"})
+    return {"segment": segment, "revision": revision}
+
+
+def list_transcript_segment_revisions(segment_id: str) -> list[dict]:
+    return [item for item in list_items("transcript_segment_revisions") if item.get("transcript_segment_id") == segment_id]
 
 
 def create_translation(payload: dict) -> dict:
@@ -665,6 +693,37 @@ def create_report(payload: dict) -> dict:
 
 def list_reports(event_id: str | None = None) -> list[dict]:
     return [item for item in list_items("reports") if not event_id or item.get("event_id") == event_id]
+
+
+def save_summary(payload: dict) -> dict:
+    event_id, session_id = _default_foreign_keys(payload)
+    item = {"id": f"summary-{len(demo_store['summaries']) + 1:04d}", "event_id": event_id, "session_id": session_id, "language": payload.get("language", "English"), "content": payload.get("content") or {}, "model": payload.get("model", "local-grounded"), "created_at": utc_now(), "updated_at": utc_now()}
+    existing = next((row for row in list_items("summaries") if row.get("session_id") == session_id and row.get("language") == item["language"]), None)
+    if existing:
+        existing.update({"content": item["content"], "model": item["model"], "updated_at": item["updated_at"]})
+        if storage_mode() == "supabase" and not str(existing.get("id", "")).startswith("summary-"):
+            response = httpx.patch(f"{settings.supabase_url}/rest/v1/summaries?id=eq.{existing['id']}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json={"content": item["content"], "model": item["model"], "updated_at": item["updated_at"]}, timeout=20)
+            if response.status_code != 404:
+                response.raise_for_status()
+                rows = response.json()
+                if rows:
+                    return _normalize_row("summaries", rows[0])
+        return existing
+    if storage_mode() == "supabase" and not str(event_id).startswith("evt-") and not str(session_id).startswith("ses-"):
+        demo_store["summaries"].insert(0, item)
+        remote = {key: value for key, value in item.items() if key != "id"}
+        response = httpx.post(f"{settings.supabase_url}/rest/v1/summaries?on_conflict=session_id,language", headers={**_headers(), "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=representation"}, json=remote, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return _normalize_row("summaries", rows[0])
+        return item
+    return _create_item("summaries", item)
+
+
+def list_summaries(session_id: str | None = None, event_id: str | None = None) -> list[dict]:
+    return [item for item in list_items("summaries") if (not session_id or item.get("session_id") == session_id) and (not event_id or item.get("event_id") == event_id)]
 
 
 def analytics(event_id: str = "evt-001") -> dict:

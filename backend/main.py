@@ -3,6 +3,7 @@
 # Smoke checks use the in-memory demo store and are reset on reload.
 # Event intelligence is exposed through the shared /api/intelligence endpoint.
 # Attendee portal routes remain usable without organizer credentials.
+# Transcript edits preserve a revision trail for organizer review.
 from pathlib import Path
 import re
 import uuid
@@ -19,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import analytics, assign_session_speaker, attendee_matches, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_asset_versions, list_items, list_reports, list_session_speakers, list_transcript_segments, moderate_question, respond_poll, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, upsert_brand_kit, vote_question
+from .repository import analytics, assign_session_speaker, attendee_matches, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_asset_versions, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
@@ -43,13 +44,19 @@ def _demo_password_matches(password: str, stored: str) -> bool:
 def _demo_session(email: str) -> dict:
     access = secrets.token_urlsafe(32)
     refresh = secrets.token_urlsafe(32)
-    demo_store.setdefault("auth_sessions", {})[access] = {"email": email, "refresh_token": refresh}
+    user = next((item for item in demo_store.setdefault("auth_users", []) if item.get("email") == email), {})
+    role = user.get("role", "organization_admin")
+    demo_store.setdefault("auth_sessions", {})[access] = {"email": email, "role": role, "refresh_token": refresh}
     demo_store.setdefault("auth_refresh_tokens", {})[refresh] = email
-    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer", "user": {"email": email}}
+    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer", "user": {"email": email, "role": role}}
 
 
 class SummaryRequest(BaseModel):
     text: str
+    targetLanguage: str = "English"
+
+
+class SessionSummaryRequest(BaseModel):
     targetLanguage: str = "English"
 
 
@@ -61,6 +68,11 @@ class TranslateRequest(BaseModel):
 class TranslationPersistRequest(BaseModel):
     text: str
     targetLanguage: str = "English"
+
+
+class TranscriptSegmentUpdateRequest(BaseModel):
+    text: str
+    editor: str = "organizer"
 
 
 class CaptureRequest(BaseModel):
@@ -226,20 +238,66 @@ async def protect_api(request, call_next):
     """
     path = request.url.path
     public = {f"{settings.api_prefix}/health"} | {f"{settings.api_prefix}/auth/{name}" for name in ("register", "login", "forgot-password", "refresh", "reset-password", "logout")}
-    attendee_public_prefixes = tuple(f"{settings.api_prefix}/{name}" for name in ("public/share", "questions", "polls", "poll-responses", "feedback", "transcripts", "transcript-segments", "topics"))
-    if not settings.supabase_url or not path.startswith(f"{settings.api_prefix}/") or path in public or path.startswith(attendee_public_prefixes):
+    relative = path.removeprefix(f"{settings.api_prefix}/")
+    method = request.method.upper()
+    attendee_public = (
+        relative.startswith("public/share")
+        or (relative == "questions" and method in {"GET", "POST"})
+        or (relative.startswith("questions/") and relative.endswith("/votes") and method == "POST")
+        or (relative == "polls" and method == "GET")
+        or (relative == "poll-responses" and method == "POST")
+        or (relative == "feedback" and method == "POST")
+        or (relative == "transcripts" and method == "GET")
+        or (relative == "transcript-segments" and method == "GET")
+        or (relative.startswith("transcript-segments/") and method in {"GET", "POST"} and (relative.endswith("/translate") or relative.endswith("/translations")))
+        or (relative == "topics" and method == "GET")
+    )
+    if not path.startswith(f"{settings.api_prefix}/") or path in public or attendee_public:
         return await call_next(request)
     authorization = request.headers.get("authorization")
     if not authorization:
         return JSONResponse(status_code=401, content={"detail": "Organizer login is required"})
+    token = authorization.removeprefix("Bearer ").strip()
+    role = ""
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(f"{settings.supabase_url}/auth/v1/user", headers={"apikey": settings.supabase_anon_key, "Authorization": authorization})
-        if not response.is_success:
-            return JSONResponse(status_code=401, content={"detail": "Organizer session is invalid or expired"})
+        if not settings.supabase_url:
+            session = demo_store.setdefault("auth_sessions", {}).get(token)
+            if not session:
+                return JSONResponse(status_code=401, content={"detail": "Organizer session is invalid or expired"})
+            role = session.get("role", "organization_admin")
+        else:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(f"{settings.supabase_url}/auth/v1/user", headers={"apikey": settings.supabase_anon_key or settings.supabase_key, "Authorization": authorization})
+            if not response.is_success:
+                return JSONResponse(status_code=401, content={"detail": "Organizer session is invalid or expired"})
+            user = response.json()
+            role = (user.get("user_metadata") or {}).get("role", "")
+            if not role and user.get("id"):
+                role = _supabase_role(user["id"])
+            role = role or "organization_admin"
     except httpx.HTTPError:
         return JSONResponse(status_code=503, content={"detail": "Authentication service is unavailable"})
+    write_prefixes = ("events", "sessions", "team", "brand-kit", "files", "capture", "transcription", "ws")
+    content_prefixes = ("content", "reports", "takeaways", "analyst", "ai", "summaries", "transcript-segments")
+    if method not in {"GET", "HEAD", "OPTIONS"}:
+        allowed = {"super_admin", "organization_admin", "event_organizer"}
+        if relative.startswith(content_prefixes):
+            allowed |= {"content_editor"}
+        if not any(relative == prefix or relative.startswith(prefix + "/") for prefix in write_prefixes + content_prefixes):
+            allowed = {"super_admin", "organization_admin", "event_organizer", "content_editor"}
+        if role not in allowed:
+            return JSONResponse(status_code=403, content={"detail": f"Role '{role}' cannot perform this action"})
     return await call_next(request)
+
+
+def _supabase_role(user_id: str) -> str:
+    try:
+        response = httpx.get(f"{settings.supabase_url}/rest/v1/organization_members?user_id=eq.{user_id}&status=eq.active&select=role&limit=1", headers={"apikey": settings.supabase_key, "Authorization": f"Bearer {settings.supabase_key}"}, timeout=10)
+        if response.is_success and response.json():
+            return response.json()[0].get("role", "")
+    except httpx.HTTPError:
+        pass
+    return ""
 
 
 @app.get(f"{settings.api_prefix}/health")
@@ -379,9 +437,20 @@ def start_session(session_id: str) -> dict:
 
 
 @app.post(f"{settings.api_prefix}/sessions/{{session_id}}/stop")
-def stop_session(session_id: str) -> dict:
-    try: return set_session_status(session_id, "completed")
+def stop_session(session_id: str, background_tasks: BackgroundTasks) -> dict:
+    try:
+        stopped = set_session_status(session_id, "completed")
+        background_tasks.add_task(_generate_completed_session_summary, session_id)
+        return {**stopped, "summary_status": "queued"}
     except (KeyError, ValueError) as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _generate_completed_session_summary(session_id: str) -> None:
+    """Generate a session summary after Stop without blocking the control action."""
+    try:
+        generate_session_summary(session_id, SessionSummaryRequest(targetLanguage="English"))
+    except Exception as exc:
+        logger.warning("completed-session summary failed for %s: %s", session_id, exc)
 
 
 @app.get(f"{settings.api_prefix}/events")
@@ -523,9 +592,53 @@ def get_transcripts(session_id: str | None = None) -> list[dict]:
     return [row for row in rows if not session_id or row.get("session_id") == session_id]
 
 
+@app.get(f"{settings.api_prefix}/summaries")
+def get_summaries(session_id: str | None = None, event_id: str | None = None) -> list[dict]:
+    return list_summaries(session_id=session_id, event_id=event_id)
+
+
+@app.post(f"{settings.api_prefix}/sessions/{{session_id}}/summary", status_code=201)
+def generate_session_summary(session_id: str, request: SessionSummaryRequest) -> dict:
+    session = next((row for row in list_items("sessions") if row.get("id") == session_id), None)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    rows = [row for row in list_items("transcripts") if row.get("session_id") == session_id]
+    source = "\n".join(row.get("text", "") for row in reversed(rows)).strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="Capture transcript evidence before generating a summary")
+    try:
+        result = summarize(source, request.targetLanguage)
+        mode = "ai"
+    except Exception:
+        result = {"output": f"Overview\n{source[:360]}\n\nMain discussion points\n• {source[:240]}\n\nAction items\n• Review this evidence with the event team.", "model": "local-grounded"}
+        mode = "fallback"
+    content = {
+        "output": result.get("output", ""),
+        "sections": ["overview", "main_discussion_points", "important_insights", "decisions", "recommendations", "questions_raised", "action_items", "notable_quotes", "topics"],
+        "evidence": [{"id": row.get("id"), "speaker": row.get("speaker"), "timestamp": row.get("created_at"), "snippet": (row.get("text") or "")[:240]} for row in rows[:12]],
+    }
+    saved = save_summary({"event_id": session.get("event_id"), "session_id": session_id, "language": request.targetLanguage, "content": content, "model": result.get("model", "local-grounded")})
+    return {"mode": mode, "summary": saved}
+
+
 @app.get(f"{settings.api_prefix}/transcript-segments")
 def get_transcript_segments(session_id: str | None = None) -> list[dict]:
     return list_transcript_segments(session_id)
+
+
+@app.patch(f"{settings.api_prefix}/transcript-segments/{{segment_id}}")
+def edit_transcript_segment(segment_id: str, request: TranscriptSegmentUpdateRequest) -> dict:
+    try:
+        return update_transcript_segment(segment_id, request.text, request.editor)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/transcript-segments/{{segment_id}}/revisions")
+def get_transcript_segment_revisions(segment_id: str) -> list[dict]:
+    return list_transcript_segment_revisions(segment_id)
 
 
 @app.post(f"{settings.api_prefix}/transcript-segments/{{segment_id}}/translate", status_code=201)

@@ -228,6 +228,44 @@ document.addEventListener('submit', async event => {
   } catch (error) { notify(error.message); }
 }, true);
 
+document.addEventListener('click', event => {
+  const button = event.target.closest('.attendee-card .translation-row .btn');
+  if (!button || state.view !== 'attendee') return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  state.attendeeLanguage = document.querySelector('#language')?.value || 'English';
+  state.view = 'transcript';
+  render();
+  const selector = document.querySelector('.transcript-toolbar select');
+  if (selector && state.attendeeLanguage !== 'English') {
+    const option = [...selector.options].find(item => item.value.startsWith(state.attendeeLanguage));
+    if (option) { selector.value = option.value; selector.dispatchEvent(new Event('change', {bubbles:true})); }
+  }
+}, true);
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-action="edit-segment"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  document.querySelector('.modal-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Transcript correction</div><h2>Edit transcript line</h2><p class="muted">Save a corrected version while preserving the original in revision history.</p><form id="transcript-edit-form" class="form-grid" data-segment-id="${esc(button.dataset.segmentId)}"><label>Transcript text<textarea name="text" rows="6" required>${esc(button.dataset.segmentText || '')}</textarea></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Save correction ↗</button></div></form></div></div>`);
+}, true);
+
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('#transcript-edit-form');
+  if (!form) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  try {
+    await api(`/api/transcript-segments/${encodeURIComponent(form.dataset.segmentId)}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:new FormData(form).get('text'), editor:'organizer'})});
+    document.querySelector('.modal-backdrop')?.remove();
+    state.data = {...state.data, transcripts: await api(`/api/transcripts?session_id=${encodeURIComponent(activeSessionId())}`)};
+    mountTranscriptData();
+    notify('Transcript correction saved with revision history');
+  } catch (error) { notify(error.message); }
+}, true);
+
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-action="notifications"], [data-action="help"], [data-action="share-social"]');
   if (!button) return;
@@ -516,7 +554,7 @@ function mountTranscriptData() {
   if (!rows.length) return;
   const card = document.querySelector('.transcript-card');
   if (!card) return;
-  card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}" data-segment-id="${esc(row.segment_id || '')}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small></div>`).join('');
+  card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}" data-segment-id="${esc(row.segment_id || '')}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><div><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small>${row.segment_id ? `<button class="btn ghost transcript-edit-button" data-action="edit-segment" data-segment-id="${esc(row.segment_id)}" data-segment-text="${esc(row.text || '')}">Edit line</button>` : ''}</div></div>`).join('');
 }
 async function refreshLiveTranscript() {
   if (state.view !== 'transcript') return;
@@ -624,9 +662,19 @@ function mountAttendeeTabs() {
   if (state.view !== 'attendee' || document.querySelector('.attendee-tabs')) return;
   document.querySelector('.attendee-nav')?.insertAdjacentHTML('afterend', '<nav class="attendee-tabs" aria-label="Attendee portal sections"><button class="active" data-attendee-anchor="attendee-hero">Live</button><button data-attendee-anchor="attendee-summary-panel">Summary</button><button data-attendee-anchor="topic-cloud-panel">Idea cloud</button><button data-attendee-anchor="audience-data-panel">Q&A + Polls</button><button data-attendee-anchor="attendee-interactions">Feedback</button></nav>');
 }
-function mountAttendeeSummary() {
+async function mountAttendeeSummary() {
   if (state.view !== 'attendee' || document.querySelector('.attendee-summary-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions attendee-summary-panel"><div class="attendee-interaction-card"><div class="eyebrow">Session intelligence</div><h2>Session summary</h2><p>Generate a grounded recap from the latest captured signals.</p><button class="btn lime" data-action="attendee-summary">Generate summary ↗</button><div id="attendee-summary-output" class="insight-list"></div></div></section>');
+  try {
+    const saved = await api(`/api/summaries?session_id=${encodeURIComponent(activeSessionId())}`);
+    const latest = saved?.[0];
+    const content = latest?.content || {};
+    const output = document.querySelector('#attendee-summary-output');
+    if (output && content.output) output.innerHTML = `<div class="insight"><span class="kind">Saved ${esc(latest.language || 'English')} summary</span><p>${esc(content.output)}</p><small class="muted">${content.evidence?.length || 0} linked transcript source${content.evidence?.length === 1 ? '' : 's'}</small></div>`;
+  } catch (_) {
+    // The summary panel remains usable when the public portal is opened before
+    // the database has been migrated or before the first organizer capture.
+  }
 }
 function mountTranscriptActions() {
   if (state.view !== 'transcript' || document.querySelector('[data-action="export-transcript"]')) return;
@@ -831,11 +879,11 @@ document.addEventListener('click', async event => {
     event.preventDefault();
     event.stopImmediatePropagation();
     const output = document.querySelector('#attendee-summary-output');
-    const source = [...(state.data?.transcripts || []), ...(state.data?.insights || [])].map(item => item.text || `${item.title}: ${item.body}`).join('\n') || 'Summarize the key ideas from this event session.';
     if (output) output.innerHTML = '<div class="muted">Generating grounded summary…</div>';
     try {
-      const result = await api('/api/ai/summarize', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source,targetLanguage:'English'})});
-      if (output) output.innerHTML = `<div class="insight"><span class="kind">${esc(result.mode || 'AI')} summary</span><p>${esc(result.output)}</p></div>`;
+      const result = await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/summary`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({targetLanguage:'English'})});
+      const summary = result.summary?.content || {};
+      if (output) output.innerHTML = `<div class="insight"><span class="kind">${esc(result.mode || 'AI')} summary · saved</span><p>${esc(summary.output || '')}</p><small class="muted">${summary.evidence?.length || 0} linked transcript source${summary.evidence?.length === 1 ? '' : 's'}</small></div>`;
     } catch (error) { if (output) output.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
   }
   if (action === 'export-transcript') {

@@ -18,3 +18,15 @@
 .hero-copy h1{font-size:clamp(48px,5.8vw,78px);letter-spacing:-.075em;line-height:.96;max-width:720px}
 .hero-copy>p{max-width:560px;color:#565764;font-size:18px;line-height:1.65}
 @media(max-width:800px){.form-grid .capture-form-row{grid-template-columns:1fr}}
+/* Brand refresh: a brighter signal mark and a more intentional wordmark. */
+.brand-name{display:flex;flex-direction:column;gap:2px;letter-spacing:-.055em;font-size:15px;font-weight:800}
+.brand-name>span{color:#fff}
+.brand-name b{color:var(--lime)}
+.logo{width:38px;height:38px;border-radius:13px;background:linear-gradient(145deg,#887bff 0%,#5347b7 48%,#302d63 100%);box-shadow:0 8px 18px rgba(117,104,243,.28);overflow:hidden}
+.logo:before{width:16px;height:16px;border:2px solid #ffe28a;border-radius:5px;box-shadow:0 0 0 3px rgba(255,226,138,.12)}
+.logo:after{content:"";position:absolute;width:48px;height:2px;background:rgba(255,255,255,.22);transform:rotate(-45deg) translateY(-11px)}
+.logo i{width:7px;height:7px;background:#ffe28a;box-shadow:0 0 10px rgba(255,226,138,.85)}
+.landing-brand .brand-name>span{color:var(--ink)}
+.landing-brand .logo,.attendee-brand .logo{flex:none}
+.landing-brand>span:last-child,.attendee-brand>span:last-child{display:flex;flex-direction:column;gap:2px;letter-spacing:-.055em;font-weight:800;line-height:1.05}
+.landing-brand>span:last-child b,.attendee-brand>span:last-child b{display:block}
