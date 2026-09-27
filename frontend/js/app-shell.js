@@ -83,6 +83,9 @@ async function load() {
   }
   const initialShareToken = new URLSearchParams(location.search).get('share');
   if (initialShareToken) {
+    // A QR/share URL is a public attendee doorway. Do not let a stale
+    // organizer session in the same browser redirect it to the workspace.
+    state.authenticated = false;
     state.publicShareToken = initialShareToken;
     try {
       const shared = await api(`/api/public/share/${encodeURIComponent(initialShareToken)}`);
