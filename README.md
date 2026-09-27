@@ -147,6 +147,8 @@ and is never treated as an organizer credential.
 
 For the Supabase-backed workspace, run **`supabase/production_schema.sql`** in the Supabase SQL Editor before enabling the service-role variables. Do not use the legacy `supabase/schema.sql` for a new deployment; it predates the current organizations, auth, content, jobs, and attendee workflows and does not create the tables used by the production API. The public landing page and demo capture flow remain usable while the database is unavailable. The API lets Supabase generate UUIDs for persisted rows, while the local demo store keeps its readable IDs.
 
+Uploaded recordings use the private Supabase Storage bucket `event-media` in deployed mode. The server creates the bucket on the first upload when `SUPABASE_SERVICE_ROLE_KEY` is configured; keep that key server-side and never expose it in frontend code. Local demo mode stores uploads under `data/uploads`.
+
 For a ready-to-view workspace after the migration, optionally run `supabase/seed_demo.sql` next. It creates the sample organization, event, session, insight, and attendee portal link without storing credentials.
 
 The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, analyst conversations and messages, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.

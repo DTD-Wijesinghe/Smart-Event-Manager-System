@@ -25,6 +25,7 @@ from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
 from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, remove_team_member, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_file, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
+from .storage import upload_bytes as upload_storage_bytes, delete_object as delete_storage_object
 
 logger = logging.getLogger("smart_event_manager")
 _RATE_STATE: dict[str, list[float]] = {}
@@ -419,7 +420,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1006,12 +1007,21 @@ async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = Fil
     if len(raw) > max_bytes:
         raise HTTPException(status_code=413, detail=f"Upload exceeds the {settings.max_upload_mb} MB limit")
     event_id = event_id or next((item.get("event_id") for item in list_items("sessions") if item.get("id") == session_id), None)
-    upload_dir = settings.data_dir / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}-{_safe_upload_name(file.filename or 'upload') }"
-    destination = upload_dir / stored_name
-    destination.write_bytes(raw)
-    file_record = create_file({"event_id": event_id, "session_id": session_id, "original_name": file.filename or "upload", "storage_path": str(destination), "mime_type": file.content_type or "application/octet-stream", "size_bytes": len(raw), "status": "processing"})
+    content_type = file.content_type or "application/octet-stream"
+    if storage_mode() == "supabase":
+        storage_path = f"events/{event_id or 'unassigned'}/{stored_name}"
+        try:
+            upload_storage_bytes(storage_path, raw, content_type)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not save upload to Supabase Storage: {exc}") from exc
+    else:
+        upload_dir = settings.data_dir / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        destination = upload_dir / stored_name
+        destination.write_bytes(raw)
+        storage_path = str(destination)
+    file_record = create_file({"event_id": event_id, "session_id": session_id, "original_name": file.filename or "upload", "storage_path": storage_path, "mime_type": content_type, "size_bytes": len(raw), "status": "processing"})
     job = create_processing_job({"event_id": event_id, "session_id": session_id, "job_type": "transcription", "status": "queued", "progress": 0})
     terms = [item.strip() for item in re.split(r"[,\n]", vocabulary) if item.strip()][:80]
     background_tasks.add_task(_process_upload, file_record, job, raw, language, terms)
@@ -1028,7 +1038,9 @@ def remove_file(file_id: str) -> dict:
     try:
         result = delete_file(file_id)
         path = result["file"].get("storage_path")
-        if path:
+        if storage_mode() == "supabase" and path:
+            delete_storage_object(path)
+        elif path:
             stored = Path(path).resolve()
             upload_root = settings.data_dir.resolve() / "uploads"
             if stored.parent == upload_root and stored.exists():
