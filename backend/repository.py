@@ -3,7 +3,7 @@ import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
-TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "insights", "share_links", "transcripts", "transcript_segments", "transcript_segment_revisions", "translations", "takeaways", "summaries", "ai_conversations", "ai_messages", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs"}
+TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "attendee_preferences", "insights", "share_links", "transcripts", "transcript_segments", "transcript_segment_revisions", "translations", "takeaways", "summaries", "topics", "topic_relations", "ai_conversations", "ai_messages", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs", "integrations", "audit_logs"}
 
 
 def storage_mode() -> str:
@@ -463,6 +463,84 @@ def team_workspace(organization_id: str | None = None) -> dict:
     if storage_mode() == "supabase" and not members:
         members = demo_store["organization_members"] if organization_id == "org-demo" else []
     return {"organization_id": organization_id, "members": members, "invitations": invitations}
+
+
+def list_organizations() -> list[dict]:
+    return list_items("organizations")
+
+
+def create_organization(payload: dict) -> dict:
+    name = str(payload.get("name") or "").strip()
+    if len(name) < 2:
+        raise ValueError("Organization name must contain at least two characters")
+    slug = re.sub(r"[^a-z0-9]+", "-", str(payload.get("slug") or name).lower()).strip("-")
+    if not slug:
+        raise ValueError("Organization slug is required")
+    if any(str(item.get("slug")) == slug for item in list_items("organizations")):
+        raise ValueError("Organization slug is already in use")
+    item = {"id": f"org-{len(demo_store['organizations']) + 1:03d}", "name": name, "slug": slug, "logo_url": str(payload.get("logo_url") or "").strip(), "website": str(payload.get("website") or "").strip(), "industry": str(payload.get("industry") or "").strip(), "timezone": str(payload.get("timezone") or "UTC"), "preferred_language": str(payload.get("preferred_language") or "en"), "created_at": utc_now(), "updated_at": utc_now()}
+    return _create_item("organizations", item)
+
+
+def update_organization(organization_id: str, payload: dict) -> dict:
+    organization = next((item for item in list_items("organizations") if item.get("id") == organization_id), None)
+    if not organization:
+        raise KeyError("Organization not found")
+    allowed = {"name", "slug", "logo_url", "website", "industry", "timezone", "preferred_language"}
+    changes = {key: str(value).strip() for key, value in payload.items() if key in allowed and value is not None}
+    if "name" in changes and len(changes["name"]) < 2:
+        raise ValueError("Organization name must contain at least two characters")
+    if "slug" in changes:
+        changes["slug"] = re.sub(r"[^a-z0-9]+", "-", changes["slug"].lower()).strip("-")
+        if any(item.get("id") != organization_id and item.get("slug") == changes["slug"] for item in list_items("organizations")):
+            raise ValueError("Organization slug is already in use")
+    organization.update(changes)
+    organization["updated_at"] = utc_now()
+    if storage_mode() == "supabase" and not str(organization_id).startswith("org-"):
+        remote = {key: value for key, value in changes.items() if key != "name"}
+        if "name" in changes:
+            remote["name"] = changes["name"]
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/organizations?id=eq.{organization_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=remote, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return rows[0]
+    return organization
+
+
+def list_integrations(organization_id: str | None = None) -> list[dict]:
+    rows = list_items("integrations")
+    return [row for row in rows if not organization_id or row.get("organization_id") == organization_id]
+
+
+def upsert_integration(payload: dict) -> dict:
+    organization_id = payload.get("organization_id") or "org-demo"
+    provider = str(payload.get("provider") or "").strip().lower()
+    if not provider or len(provider) > 80:
+        raise ValueError("Integration provider is required")
+    allowed_statuses = {"connected", "disconnected", "error", "pending"}
+    status = str(payload.get("status") or "disconnected").lower()
+    if status not in allowed_statuses:
+        raise ValueError("Unsupported integration status")
+    existing = next((row for row in list_items("integrations") if row.get("organization_id") == organization_id and row.get("provider") == provider), None)
+    values = {"provider": provider, "status": status, "display_name": str(payload.get("display_name") or provider.title()).strip(), "metadata": payload.get("metadata") or {}, "updated_at": utc_now()}
+    if existing:
+        existing.update(values)
+        if storage_mode() == "supabase" and existing.get("id") and not str(existing["id"]).startswith("integration-"):
+            response = httpx.patch(f"{settings.supabase_url}/rest/v1/integrations?id=eq.{existing['id']}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=values, timeout=20)
+            if response.status_code != 404:
+                response.raise_for_status()
+                rows = response.json()
+                if rows:
+                    return rows[0]
+        return existing
+    return _create_item("integrations", {"id": f"integration-{len(demo_store['integrations']) + 1:04d}", "organization_id": organization_id, "created_at": utc_now(), **values})
+
+
+def admin_overview() -> dict:
+    jobs = list_items("processing_jobs")
+    return {"organizations": len(list_items("organizations")), "users": len(list_items("profiles")), "events": len(list_items("events")), "sessions": len(list_items("sessions")), "storage_files": len(list_items("files")), "ai_usage": {"generated_assets": len(list_items("generated_assets")), "analyst_messages": len(list_items("ai_messages"))}, "jobs": {"queued": sum(row.get("status") == "queued" for row in jobs), "running": sum(row.get("status") == "running" for row in jobs), "failed": sum(row.get("status") == "failed" for row in jobs), "completed": sum(row.get("status") == "completed" for row in jobs)}, "api": {"storage_mode": storage_mode(), "ai_configured": bool(settings.project or settings.gemini_api_key)}}
 
 
 def get_brand_kit(organization_id: str | None = None) -> dict:

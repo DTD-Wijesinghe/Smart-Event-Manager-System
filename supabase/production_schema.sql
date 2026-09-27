@@ -154,6 +154,12 @@ create table if not exists public.brand_kits (
   id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
   name text not null default 'Default brand', logo_url text, primary_color text, secondary_color text, accent_color text, font_family text, tone text, website text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+create table if not exists public.integrations (
+  id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
+  provider text not null, display_name text not null, status text not null default 'disconnected' check (status in ('connected','disconnected','error','pending')),
+  metadata jsonb not null default '{}'::jsonb, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+  unique (organization_id, provider)
+);
 create table if not exists public.generated_assets (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   created_by uuid references public.profiles(id) on delete set null, asset_type text not null, title text not null, content jsonb not null default '{}', status text not null default 'draft', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
@@ -193,6 +199,7 @@ create index if not exists jobs_status_idx on public.processing_jobs(status, cre
 create index if not exists assets_event_idx on public.generated_assets(event_id, created_at desc);
 create index if not exists reports_event_idx on public.reports(event_id, created_at desc);
 create index if not exists summaries_session_idx on public.summaries(session_id, created_at desc);
+create index if not exists integrations_organization_idx on public.integrations(organization_id, provider);
 
 drop trigger if exists organizations_updated_at on public.organizations;
 create trigger organizations_updated_at before update on public.organizations for each row execute function public.set_updated_at();
@@ -208,6 +215,8 @@ drop trigger if exists assets_updated_at on public.generated_assets;
 create trigger assets_updated_at before update on public.generated_assets for each row execute function public.set_updated_at();
 drop trigger if exists jobs_updated_at on public.processing_jobs;
 create trigger jobs_updated_at before update on public.processing_jobs for each row execute function public.set_updated_at();
+drop trigger if exists integrations_updated_at on public.integrations;
+create trigger integrations_updated_at before update on public.integrations for each row execute function public.set_updated_at();
 
 alter table public.organizations enable row level security;
 alter table public.profiles enable row level security;
@@ -237,6 +246,7 @@ alter table public.poll_options enable row level security;
 alter table public.poll_responses enable row level security;
 alter table public.feedback enable row level security;
 alter table public.brand_kits enable row level security;
+alter table public.integrations enable row level security;
 alter table public.generated_assets enable row level security;
 alter table public.generated_asset_versions enable row level security;
 alter table public.transcript_segment_revisions enable row level security;

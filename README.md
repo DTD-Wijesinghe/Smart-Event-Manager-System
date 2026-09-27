@@ -76,6 +76,9 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `POST /api/auth/refresh`
 - `POST /api/auth/reset-password` - complete a Supabase recovery-link password update with the recovery bearer token
 - `GET /api/dashboard`
+- `GET`, `POST`, `PATCH /api/organizations` — manage organization identity and defaults
+- `GET`, `PUT /api/integrations/{provider}` — manage provider connection status without exposing secrets
+- `GET /api/admin/overview` — super-admin platform and job health summary
 - `GET /api/sessions`
 - `POST`, `PATCH`, `DELETE /api/sessions` plus `POST /api/sessions/{session_id}/duplicate`
 - `POST /api/sessions/{session_id}/start` and `/stop`

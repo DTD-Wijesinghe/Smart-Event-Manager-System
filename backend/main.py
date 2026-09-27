@@ -16,14 +16,14 @@ import base64
 import json
 from typing import Any
 import httpx
-from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, vote_question
+from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
@@ -251,6 +251,24 @@ class InvitationRequest(BaseModel):
     organization_id: str = "org-demo"
 
 
+class OrganizationRequest(BaseModel):
+    name: str
+    slug: str | None = None
+    logo_url: str = ""
+    website: str = ""
+    industry: str = ""
+    timezone: str = "UTC"
+    preferred_language: str = "en"
+
+
+class IntegrationRequest(BaseModel):
+    organization_id: str = "org-demo"
+    provider: str = ""
+    status: str = "disconnected"
+    display_name: str = ""
+    metadata: dict = {}
+
+
 class TeamMemberUpdateRequest(BaseModel):
     role: str | None = None
     status: str | None = None
@@ -338,6 +356,12 @@ async def protect_api(request, call_next):
         return JSONResponse(status_code=503, content={"detail": "Authentication service is unavailable"})
     write_prefixes = ("events", "sessions", "team", "brand-kit", "files", "capture", "transcription", "ws")
     content_prefixes = ("content", "reports", "takeaways", "analyst", "ai", "summaries", "transcript-segments")
+    if relative.startswith("admin/") and role != "super_admin":
+        return JSONResponse(status_code=403, content={"detail": "Super admin access is required"})
+    if relative.startswith("organizations") and role not in {"super_admin", "organization_admin"}:
+        return JSONResponse(status_code=403, content={"detail": "Organization admin access is required"})
+    if relative.startswith("integrations") and role not in {"super_admin", "organization_admin"}:
+        return JSONResponse(status_code=403, content={"detail": "Organization admin access is required"})
     if method not in {"GET", "HEAD", "OPTIONS"}:
         allowed = {"super_admin", "organization_admin", "event_organizer"}
         if relative.startswith(content_prefixes):
@@ -499,6 +523,47 @@ def reset_password(request: ResetPasswordRequest, authorization: str | None = He
 
 @app.get(f"{settings.api_prefix}/dashboard")
 def get_dashboard(event_id: str | None = None) -> dict: return dashboard(event_id)
+
+
+@app.get(f"{settings.api_prefix}/organizations")
+def get_organizations() -> list[dict]:
+    return list_items("organizations")
+
+
+@app.post(f"{settings.api_prefix}/organizations", status_code=201)
+def add_organization(request: OrganizationRequest) -> dict:
+    try:
+        return create_organization(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch(f"{settings.api_prefix}/organizations/{{organization_id}}")
+def edit_organization(organization_id: str, request: OrganizationRequest) -> dict:
+    try:
+        return update_organization(organization_id, request.model_dump(exclude_none=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/integrations")
+def get_integrations(organization_id: str | None = None) -> list[dict]:
+    return list_integrations(organization_id)
+
+
+@app.put(f"{settings.api_prefix}/integrations/{{provider}}")
+def save_integration(provider: str, request: IntegrationRequest) -> dict:
+    try:
+        return upsert_integration({**request.model_dump(), "provider": provider})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/admin/overview")
+def get_admin_overview() -> dict:
+    return admin_overview()
 
 
 @app.get(f"{settings.api_prefix}/sessions")
