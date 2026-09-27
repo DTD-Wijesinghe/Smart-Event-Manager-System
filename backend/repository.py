@@ -146,6 +146,20 @@ def get_share_link(token: str) -> dict | None:
     return {"link": link, "event": event or (events[0] if events else None), "sessions": sessions}
 
 
+def share_link_allows(token: str | None, session_id: str | None = None, event_id: str | None = None) -> bool:
+    """Validate a public portal token without incrementing its visit counter."""
+    if not token:
+        return False
+    link = next((item for item in list_items("share_links") if item.get("token") == token), None)
+    if not link:
+        return False
+    if event_id and link.get("event_id") != event_id:
+        return False
+    if session_id and link.get("session_id") and link.get("session_id") != session_id:
+        return False
+    return True
+
+
 def ensure_share_link(event_id: str, session_id: str | None = None) -> dict:
     events = list_items("events")
     event = next((item for item in events if item.get("id") == event_id), None)

@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
+from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
@@ -320,10 +320,13 @@ async def protect_api(request, call_next):
         or (relative == "polls" and method == "GET")
         or (relative == "poll-responses" and method == "POST")
         or (relative == "feedback" and method == "POST")
-        or (relative == "transcripts" and method == "GET")
-        or (relative == "transcript-segments" and method == "GET")
+      or (relative == "transcripts" and method == "GET")
+      or (relative == "summaries" and method == "GET")
+      or (relative.startswith("sessions/") and relative.endswith("/summary") and method == "POST")
+      or (relative == "transcript-segments" and method == "GET")
         or (relative.startswith("transcript-segments/") and method in {"GET", "POST"} and (relative.endswith("/translate") or relative.endswith("/translations")))
-        or (relative == "topics" and method == "GET")
+      or (relative == "topics" and method == "GET")
+      or (relative == "ai/translate" and method == "POST")
     )
     if not path.startswith(f"{settings.api_prefix}/") or path in public or attendee_public:
         return await call_next(request)
@@ -748,22 +751,32 @@ def get_public_share(token: str) -> dict:
     return result
 
 
+def _require_portal_access(authorization: str | None, share_token: str | None, session_id: str | None = None, event_id: str | None = None) -> None:
+    if authorization:
+        return
+    if not share_link_allows(share_token, session_id=session_id, event_id=event_id):
+        raise HTTPException(status_code=403, detail="A valid attendee share link is required")
+
+
 @app.get(f"{settings.api_prefix}/transcripts")
-def get_transcripts(session_id: str | None = None) -> list[dict]:
+def get_transcripts(session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id)
     rows = list_items("transcripts")
     return [row for row in rows if not session_id or row.get("session_id") == session_id]
 
 
 @app.get(f"{settings.api_prefix}/summaries")
-def get_summaries(session_id: str | None = None, event_id: str | None = None) -> list[dict]:
+def get_summaries(session_id: str | None = None, event_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id, event_id=event_id)
     return list_summaries(session_id=session_id, event_id=event_id)
 
 
 @app.post(f"{settings.api_prefix}/sessions/{{session_id}}/summary", status_code=201)
-def generate_session_summary(session_id: str, request: SessionSummaryRequest) -> dict:
+def generate_session_summary(session_id: str, request: SessionSummaryRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
     session = next((row for row in list_items("sessions") if row.get("id") == session_id), None)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    _require_portal_access(authorization, share_token, session_id=session_id, event_id=session.get("event_id"))
     rows = [row for row in list_items("transcripts") if row.get("session_id") == session_id]
     source = "\n".join(row.get("text", "") for row in reversed(rows)).strip()
     if not source:
@@ -784,7 +797,8 @@ def generate_session_summary(session_id: str, request: SessionSummaryRequest) ->
 
 
 @app.get(f"{settings.api_prefix}/transcript-segments")
-def get_transcript_segments(session_id: str | None = None) -> list[dict]:
+def get_transcript_segments(session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id)
     return list_transcript_segments(session_id)
 
 
@@ -804,10 +818,11 @@ def get_transcript_segment_revisions(segment_id: str) -> list[dict]:
 
 
 @app.post(f"{settings.api_prefix}/transcript-segments/{{segment_id}}/translate", status_code=201)
-def translate_transcript_segment(segment_id: str, request: TranslationPersistRequest) -> dict:
+def translate_transcript_segment(segment_id: str, request: TranslationPersistRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
     segment = next((item for item in list_transcript_segments() if item.get("id") == segment_id), None)
     if not segment:
         raise HTTPException(status_code=404, detail="Transcript segment not found")
+    _require_portal_access(authorization, share_token, session_id=segment.get("session_id"))
     try:
         result = translate(request.text, request.targetLanguage)
     except Exception:
@@ -817,7 +832,9 @@ def translate_transcript_segment(segment_id: str, request: TranslationPersistReq
 
 
 @app.get(f"{settings.api_prefix}/transcript-segments/{{segment_id}}/translations")
-def get_segment_translations(segment_id: str) -> list[dict]:
+def get_segment_translations(segment_id: str, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    segment = next((item for item in list_transcript_segments() if item.get("id") == segment_id), None)
+    _require_portal_access(authorization, share_token, session_id=segment.get("session_id") if segment else None)
     return [item for item in list_items("translations") if item.get("transcript_segment_id") == segment_id]
 
 
@@ -920,19 +937,25 @@ def get_processing_jobs(event_id: str | None = None, session_id: str | None = No
 
 
 @app.get(f"{settings.api_prefix}/questions")
-def get_questions(session_id: str | None = None) -> list[dict]:
+def get_questions(session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id)
     questions = list_items("questions")
     return [item for item in questions if not session_id or item.get("session_id") == session_id]
 
 
 @app.post(f"{settings.api_prefix}/questions", status_code=201)
-def add_question(request: QuestionRequest) -> dict:
+def add_question(request: QuestionRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
+    _require_portal_access(authorization, share_token, session_id=request.session_id)
     if len(request.body.strip()) < 3: raise HTTPException(status_code=400, detail="Question is too short")
     return create_question(request.model_dump())
 
 
 @app.post(f"{settings.api_prefix}/questions/{{question_id}}/votes")
-def add_question_vote(question_id: str, request: VoteRequest) -> dict:
+def add_question_vote(question_id: str, request: VoteRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
+    question = next((item for item in list_items("questions") if item.get("id") == question_id), None)
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    _require_portal_access(authorization, share_token, session_id=question.get("session_id"))
     try: return vote_question(question_id, request.voter_id)
     except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -945,7 +968,8 @@ def moderate_question_route(question_id: str, request: QuestionModerationRequest
 
 
 @app.get(f"{settings.api_prefix}/polls")
-def get_polls(session_id: str | None = None) -> list[dict]:
+def get_polls(session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id)
     polls = list_items("polls")
     options = list_items("poll_options")
     responses = list_items("poll_responses")
@@ -980,10 +1004,11 @@ def update_poll_route(poll_id: str, request: PollUpdateRequest) -> dict:
 
 
 @app.post(f"{settings.api_prefix}/poll-responses", status_code=201)
-def add_poll_response(request: PollResponseRequest) -> dict:
+def add_poll_response(request: PollResponseRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
     poll = next((item for item in list_items("polls") if item.get("id") == request.poll_id), None)
     if not poll:
         raise HTTPException(status_code=404, detail="Poll not found")
+    _require_portal_access(authorization, share_token, session_id=poll.get("session_id"))
     if not poll.get("is_open"):
         raise HTTPException(status_code=409, detail="This poll is closed")
     if request.attendee_id != "anonymous":
@@ -1002,7 +1027,8 @@ def add_poll_response(request: PollResponseRequest) -> dict:
 
 
 @app.post(f"{settings.api_prefix}/feedback", status_code=201)
-def add_feedback(request: FeedbackRequest) -> dict:
+def add_feedback(request: FeedbackRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
+    _require_portal_access(authorization, share_token, session_id=request.session_id)
     for rating in (request.speaker_rating, request.content_rating, request.session_rating):
         if rating is not None and not 1 <= rating <= 5: raise HTTPException(status_code=400, detail="Ratings must be between 1 and 5")
     return create_feedback(request.model_dump())
@@ -1025,7 +1051,8 @@ def search(query: str, event_id: str | None = None) -> list[dict]:
 
 
 @app.get(f"{settings.api_prefix}/topics")
-def get_topics(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+def get_topics(event_id: str | None = None, session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id, event_id=event_id)
     return topic_cloud(event_id, session_id)
 
 

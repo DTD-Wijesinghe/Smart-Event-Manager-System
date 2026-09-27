@@ -93,7 +93,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/share-links`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
 - The attendee portal is session-aware: attendees can switch sessions, and the selected session scopes its live transcript, Q&A, polls, feedback, and browser capture workflow.
-- `GET /api/transcripts?session_id=...` - read the live transcript stream, optionally scoped to a session; the transcript view polls this endpoint every five seconds
+- `GET /api/transcripts?session_id=...` - read the live transcript stream, optionally scoped to a session; organizer calls use a bearer session and attendee calls must include the QR `share_token`
 - `GET /api/summaries?session_id=...&event_id=...` - read persisted session summaries
 - `POST /api/sessions/{session_id}/summary` - generate and persist an evidence-linked session summary
 - `GET /api/transcript-segments?session_id=...` - read normalized, time-aware transcript segments for a session
@@ -128,6 +128,10 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/files?event_id=...&session_id=...`
 - `DELETE /api/files/{file_id}` — remove an uploaded file and its local stored copy
 - `GET /api/processing-jobs?event_id=...&session_id=...` — inspect queued/running/completed/failed processing jobs
+
+Public attendee data routes are token-scoped. Event links can read the event's sessions;
+session links can read only their assigned session. The token is carried by the QR URL
+and is never treated as an organizer credential.
 
 ## Snapsight-style event workflow
 

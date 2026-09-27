@@ -1,4 +1,4 @@
-const state = { view: 'landing', data: null, authenticated: false, authMode: 'login', resetToken: '', currentSessionId: '', assets: [] };
+const state = { view: 'landing', data: null, authenticated: false, authMode: 'login', resetToken: '', currentSessionId: '', assets: [], publicShareToken: '' };
 window.selectAuthMode = kind => { state.authMode = kind === 'register' ? 'register' : 'login'; state.view = 'auth'; render(); };
 let transcriptRefreshTimer = null;
 const app = document.querySelector('#app');
@@ -12,6 +12,7 @@ function attendeePortalUrl(data = state.data) {
   return `${location.origin}/?share=${encodeURIComponent(token)}#attendee`;
 }
 function activeSessionId() { return state.currentSessionId || state.data?.sessions?.find(session => session.status === 'live')?.id || state.data?.sessions?.[0]?.id || 'ses-001'; }
+function attendeeApi(path) { if (state.authenticated || !state.publicShareToken) return path; return `${path}${path.includes('?') ? '&' : '?'}share_token=${encodeURIComponent(state.publicShareToken)}`; }
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2600); }
 function downloadCsv(filename, rows) { const source=rows||[]; if(!source.length)return notify('There is no data to export yet'); const keys=[...new Set(source.flatMap(row=>Object.keys(row)))]; const quote=value=>`"${String(Array.isArray(value)?value.join('; '):value??'').replaceAll('"','""')}"`; const content=[keys.join(','),...source.map(row=>keys.map(key=>quote(row[key])).join(','))].join('\n'); const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'})); const link=document.createElement('a'); link.href=url; link.download=filename; link.click(); URL.revokeObjectURL(url); notify(`${filename} downloaded`); }
 
@@ -19,6 +20,7 @@ async function api(path, options = {}, retry = false) {
   const stored = JSON.parse(localStorage.getItem('smart-event-session') || '{}');
   const headers = new Headers(options.headers || {});
   if (stored.access_token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${stored.access_token}`);
+  if (state.publicShareToken && !state.authenticated && path.startsWith('/api/') && !path.includes('share_token=')) path = `${path}${path.includes('?') ? '&' : '?'}share_token=${encodeURIComponent(state.publicShareToken)}`;
   const response = await fetch(path, {...options, headers});
   let payload = null;
   try { payload = await response.json(); } catch (_) { /* non-JSON response */ }
@@ -86,6 +88,7 @@ async function load() {
   render();
   try {
     const shareToken = new URLSearchParams(location.search).get('share');
+    state.publicShareToken = shareToken || '';
     if (shareToken) {
       const shared = await api(`/api/public/share/${encodeURIComponent(shareToken)}`);
       state.data = {event: shared.event || null, sessions: shared.sessions || [], share_links: shared.link ? [shared.link] : [], attendees: [], insights: [], transcripts: [], analytics: {}, mode: 'public'};
@@ -339,7 +342,7 @@ document.addEventListener('submit', async event => {
   try {
     await api(`/api/transcript-segments/${encodeURIComponent(form.dataset.segmentId)}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:new FormData(form).get('text'), editor:'organizer'})});
     document.querySelector('.modal-backdrop')?.remove();
-    state.data = {...state.data, transcripts: await api(`/api/transcripts?session_id=${encodeURIComponent(activeSessionId())}`)};
+    state.data = {...state.data, transcripts: await api(attendeeApi(`/api/transcripts?session_id=${encodeURIComponent(activeSessionId())}`))};
     mountTranscriptData();
     notify('Transcript correction saved with revision history');
   } catch (error) { notify(error.message); }
@@ -758,7 +761,7 @@ async function mountTopicCloud() {
   if (state.view !== 'attendee' || document.querySelector('.topic-cloud-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions topic-cloud-panel"><div class="attendee-interaction-card"><div class="eyebrow">Event intelligence</div><h2>Explore the idea cloud</h2><p>Tap a topic to see the captured evidence behind it.</p><div id="topic-cloud" class="actions-row"><span class="muted">Loading topics…</span></div><div id="topic-evidence" class="insight-list"></div></div></section>');
   try {
-    const topics = await api(`/api/topics?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    const topics = await api(attendeeApi(`/api/topics?event_id=${encodeURIComponent(state.data?.event?.id || '')}&session_id=${encodeURIComponent(activeSessionId())}`));
     const cloud = document.querySelector('#topic-cloud');
     if (cloud) cloud.innerHTML = topics.length ? topics.map(topic => `<button class="btn ghost" data-topic-label="${esc(topic.label)}" style="font-size:${Math.round(11 + topic.weight * 9)}px">${esc(topic.label)} <small>${topic.count}</small></button>`).join('') : '<span class="muted">Topic signals will appear after the first capture.</span>';
   } catch (error) { const cloud = document.querySelector('#topic-cloud'); if (cloud) cloud.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
@@ -768,7 +771,7 @@ async function mountAudienceData() {
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions audience-data-panel"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Questions and polls</h2><div id="question-feed" class="insight-list"><span class="muted">Loading audience activity…</span></div><div id="poll-feed" class="insight-list"></div></div></section>');
   try {
     const sessionId = encodeURIComponent(activeSessionId());
-    const [questions, polls] = await Promise.all([api(`/api/questions?session_id=${sessionId}`), api(`/api/polls?session_id=${sessionId}`)]);
+    const [questions, polls] = await Promise.all([api(attendeeApi(`/api/questions?session_id=${sessionId}`)), api(attendeeApi(`/api/polls?session_id=${sessionId}`))]);
     const questionFeed = document.querySelector('#question-feed');
     if (questionFeed) questionFeed.innerHTML = questions.length ? questions.map(question => `<div class="insight"><span class="kind">${question.status || 'pending'} · ${question.votes || 0} votes</span><p>${esc(question.body)}</p><button class="btn ghost" data-question-vote="${esc(question.id)}">Upvote</button></div>`).join('') : '<span class="muted">No audience questions yet.</span>';
     const pollFeed = document.querySelector('#poll-feed');
@@ -783,7 +786,7 @@ async function mountAttendeeSummary() {
   if (state.view !== 'attendee' || document.querySelector('.attendee-summary-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions attendee-summary-panel"><div class="attendee-interaction-card"><div class="eyebrow">Session intelligence</div><h2>Session summary</h2><p>Generate a grounded recap from the latest captured signals.</p><button class="btn lime" data-action="attendee-summary">Generate summary ↗</button><div id="attendee-summary-output" class="insight-list"></div></div></section>');
   try {
-    const saved = await api(`/api/summaries?session_id=${encodeURIComponent(activeSessionId())}`);
+    const saved = await api(attendeeApi(`/api/summaries?session_id=${encodeURIComponent(activeSessionId())}`));
     const latest = saved?.[0];
     const content = latest?.content || {};
     const output = document.querySelector('#attendee-summary-output');
@@ -855,14 +858,14 @@ document.addEventListener('submit', async e => {
   if (e.target.id === 'question-form') {
     e.preventDefault();
     const form = new FormData(e.target);
-    try { await api('/api/questions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({body:form.get('body'), anonymous:form.get('anonymous') === 'on', session_id:activeSessionId()})}); e.target.reset(); document.querySelector('#question-status').textContent = 'Question submitted for organizer review.'; notify('Question submitted'); }
+    try { await api(attendeeApi('/api/questions'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({body:form.get('body'), anonymous:form.get('anonymous') === 'on', session_id:activeSessionId()})}); e.target.reset(); document.querySelector('#question-status').textContent = 'Question submitted for organizer review.'; notify('Question submitted'); }
     catch (error) { notify(error.message); }
   }
   if (e.target.id === 'feedback-form') {
     e.preventDefault();
     const form = new FormData(e.target);
     const value = name => form.get(name) ? Number(form.get(name)) : null;
-    try { await api('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:activeSessionId(), speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('content_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
+    try { await api(attendeeApi('/api/feedback'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:activeSessionId(), speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('content_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
     catch (error) { notify(error.message); }
   }
 }, true);
@@ -891,7 +894,7 @@ document.addEventListener('click', async event => {
   if (!questionId) return;
   event.preventDefault();
   try {
-    const question = await api(`/api/questions/${encodeURIComponent(questionId)}/votes`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({voter_id:'browser-anonymous'})});
+    const question = await api(attendeeApi(`/api/questions/${encodeURIComponent(questionId)}/votes`), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({voter_id:'browser-anonymous'})});
     event.target.textContent = `${question.votes || 1} votes`;
     event.target.disabled = true;
   } catch (error) { notify(error.message); }
@@ -901,7 +904,7 @@ document.addEventListener('submit', async event => {
   const form = event.target.closest('.poll-response-form');
   if (!form) return;
   event.preventDefault();
-  try { const values = new FormData(form); const voterKey = localStorage.getItem('smart-event-voter-id') || (crypto.randomUUID ? crypto.randomUUID() : `voter-${Date.now()}`); localStorage.setItem('smart-event-voter-id', voterKey); await api('/api/poll-responses', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, attendee_id:voterKey, option_id:values.get('option_id') || null, option_ids:values.getAll('option_ids'), answer_text:values.get('answer_text') || null})}); form.reset(); document.querySelector('.audience-data-panel')?.remove(); await mountAudienceData(); notify('Poll response recorded'); }
+  try { const values = new FormData(form); const voterKey = localStorage.getItem('smart-event-voter-id') || (crypto.randomUUID ? crypto.randomUUID() : `voter-${Date.now()}`); localStorage.setItem('smart-event-voter-id', voterKey); await api(attendeeApi('/api/poll-responses'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({poll_id:form.dataset.pollId, attendee_id:voterKey, option_id:values.get('option_id') || null, option_ids:values.getAll('option_ids'), answer_text:values.get('answer_text') || null})}); form.reset(); document.querySelector('.audience-data-panel')?.remove(); await mountAudienceData(); notify('Poll response recorded'); }
   catch (error) { notify(error.message); }
 }, true);
 
@@ -1028,7 +1031,7 @@ document.addEventListener('click', async event => {
     const output = document.querySelector('#attendee-summary-output');
     if (output) output.innerHTML = '<div class="muted">Generating grounded summary…</div>';
     try {
-      const result = await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/summary`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({targetLanguage:'English'})});
+      const result = await api(attendeeApi(`/api/sessions/${encodeURIComponent(activeSessionId())}/summary`), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({targetLanguage:'English'})});
       const summary = result.summary?.content || {};
       if (output) output.innerHTML = `<div class="insight"><span class="kind">${esc(result.mode || 'AI')} summary · saved</span><p>${esc(summary.output || '')}</p><small class="muted">${summary.evidence?.length || 0} linked transcript source${summary.evidence?.length === 1 ? '' : 's'}</small></div>`;
     } catch (error) { if (output) output.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
