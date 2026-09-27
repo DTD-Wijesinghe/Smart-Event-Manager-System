@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
-from .repository import analytics, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, delete_event, delete_session, duplicate_session, get_share_link, list_items, respond_poll, search_knowledge, set_session_status, storage_mode, topic_cloud, update_event, update_session, vote_question
+from .repository import analytics, attendee_matches, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, delete_event, delete_session, duplicate_session, get_share_link, list_items, respond_poll, search_knowledge, set_session_status, storage_mode, topic_cloud, update_event, update_session, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 
@@ -248,6 +248,10 @@ def remove_event(event_id: str) -> dict:
 def get_attendees() -> list[dict]: return list_items("attendees")
 
 
+@app.get(f"{settings.api_prefix}/attendees/matches")
+def get_attendee_matches(attendee_id: str) -> list[dict]: return attendee_matches(attendee_id)
+
+
 @app.get(f"{settings.api_prefix}/insights")
 def get_insights() -> list[dict]: return list_items("insights")
 
@@ -379,7 +383,9 @@ def ask_analyst(request: AnalystRequest) -> dict:
 
 
 @app.get(f"{settings.api_prefix}/content/assets")
-def get_generated_assets() -> list[dict]: return list_items("generated_assets")
+def get_generated_assets(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    assets = list_items("generated_assets")
+    return [asset for asset in assets if (not event_id or asset.get("event_id") == event_id) and (not session_id or asset.get("session_id") == session_id)]
 
 
 @app.post(f"{settings.api_prefix}/content/generate", status_code=201)

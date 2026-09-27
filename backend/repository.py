@@ -45,6 +45,24 @@ def list_items(table: str) -> list[dict]:
     return _supabase_list(table) if storage_mode() == "supabase" else demo_store[table]
 
 
+def attendee_matches(attendee_id: str) -> list[dict]:
+    attendees = list_items("attendees")
+    target = next((item for item in attendees if item.get("id") == attendee_id), None)
+    if not target:
+        return []
+    target_interests = {str(value).lower() for value in target.get("interests", [])}
+    matches = []
+    for attendee in attendees:
+        if attendee.get("id") == attendee_id:
+            continue
+        shared = sorted(target_interests & {str(value).lower() for value in attendee.get("interests", [])})
+        if not shared:
+            continue
+        score = min(99, 60 + len(shared) * 12 + round(abs((attendee.get("intent_score") or 0) - (target.get("intent_score") or 0)) * 0.2))
+        matches.append({"attendee": attendee, "match_score": score, "shared_interests": shared, "reason": f"Both interested in {', '.join(shared)}"})
+    return sorted(matches, key=lambda item: item["match_score"], reverse=True)
+
+
 def get_share_link(token: str) -> dict | None:
     """Resolve an attendee portal token and increment its public view count."""
     links = list_items("share_links")

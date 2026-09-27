@@ -1,4 +1,4 @@
-const state = { view: 'landing', data: null, authenticated: false, authMode: 'login', resetToken: '' };
+const state = { view: 'landing', data: null, authenticated: false, authMode: 'login', resetToken: '', currentSessionId: '', assets: [] };
 let transcriptRefreshTimer = null;
 const app = document.querySelector('#app');
 const toast = document.querySelector('#toast');
@@ -6,6 +6,7 @@ const toast = document.querySelector('#toast');
 const esc = (value = '') => String(value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const date = iso => new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 const money = num => new Intl.NumberFormat('en', { notation:'compact', maximumFractionDigits:1 }).format(num);
+function activeSessionId() { return state.currentSessionId || state.data?.sessions?.find(session => session.status === 'live')?.id || state.data?.sessions?.[0]?.id || 'ses-001'; }
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2600); }
 function downloadCsv(filename, rows) { const source=rows||[]; if(!source.length)return notify('There is no data to export yet'); const keys=[...new Set(source.flatMap(row=>Object.keys(row)))]; const quote=value=>`"${String(Array.isArray(value)?value.join('; '):value??'').replaceAll('"','""')}"`; const content=[keys.join(','),...source.map(row=>keys.map(key=>quote(row[key])).join(','))].join('\n'); const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'})); const link=document.createElement('a'); link.href=url; link.download=filename; link.click(); URL.revokeObjectURL(url); notify(`${filename} downloaded`); }
 
@@ -54,6 +55,7 @@ async function load() {
     } else if (state.authenticated) {
       state.view = 'overview';
     }
+    state.currentSessionId = activeSessionId();
     if (state.view !== 'landing') render();
   } catch (error) {
     if (state.view !== 'landing') {
@@ -143,6 +145,36 @@ document.addEventListener('submit', async event => {
     notify('Session updated');
   } catch (error) { notify(error.message); }
 }, true);
+document.addEventListener('change', async event => {
+  const picker = event.target.closest('#attendee-session-select');
+  if (!picker) return;
+  state.currentSessionId = picker.value;
+  try {
+    state.data = {...state.data, transcripts: await api(`/api/transcripts?session_id=${encodeURIComponent(activeSessionId())}`)};
+    render();
+    notify('Viewing the selected session');
+  } catch (error) { notify(error.message); }
+}, true);
+function showMatchResults(matches, attendee) {
+  document.querySelector('.match-results')?.remove();
+  const body = matches.length ? matches.map(match => `<div class="insight"><span class="kind">${match.match_score}% match</span><strong>${esc(match.attendee.full_name)} · ${esc(match.attendee.role || '')}</strong><p>${esc(match.reason)}</p><div class="actions-row">${match.shared_interests.map(interest => `<span class="badge">${esc(interest)}</span>`).join('')}</div></div>`).join('') : '<p class="muted">No overlapping interests found yet.</p>';
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop match-results"><div class="modal"><div class="eyebrow">Networking intelligence</div><h2>Best connections for ${esc(attendee.full_name)}</h2><p>Matches are ranked from shared interests and attendee intent signals.</p><div class="insight-list">${body}</div><div class="modal-actions"><button class="btn lime" data-action="close-match-results">Done</button></div></div></div>`);
+}
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="match"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const attendee = state.data?.attendees?.[0];
+  if (!attendee) return notify('Load attendee data before finding matches');
+  try {
+    const matches = await api(`/api/attendees/matches?attendee_id=${encodeURIComponent(attendee.id)}`);
+    showMatchResults(matches, attendee);
+  } catch (error) { notify(error.message); }
+}, true);
+document.addEventListener('click', event => {
+  if (event.target.closest('[data-action="close-match-results"]')) event.target.closest('.match-results')?.remove();
+}, true);
 load();
 document.addEventListener('submit', async event => {
   const form = event.target;
@@ -202,7 +234,7 @@ document.addEventListener('click', async e => {
         try {
           const form = new FormData();
           form.append('file', new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}), 'live-capture.webm');
-          form.append('session_id', 'ses-001');
+          form.append('session_id', activeSessionId());
           form.append('language', 'auto');
           const result = await api('/api/transcription/batch', {method:'POST', body:form});
           state.data = await api('/api/dashboard');
@@ -215,7 +247,7 @@ document.addEventListener('click', async e => {
       };
       window.__captureRecorder = recorder;
       recorder.start(1000);
-      await api('/api/sessions/ses-001/start', {method:'POST'}).catch(() => null);
+      await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/start`, {method:'POST'}).catch(() => null);
       document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
       document.querySelector('[data-capture-action="stop"]').disabled = false;
@@ -224,7 +256,7 @@ document.addEventListener('click', async e => {
   } else if (captureAction === 'stop') {
     if (window.__captureRecorder?.state === 'recording') window.__captureRecorder.stop();
     window.__captureStream?.getTracks().forEach(track => track.stop());
-    await api('/api/sessions/ses-001/stop', {method:'POST'}).catch(() => null);
+    await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/stop`, {method:'POST'}).catch(() => null);
     document.querySelector('#capture-status').textContent = 'Processing';
     document.querySelector('[data-capture-action="start"]').disabled = false;
     document.querySelector('[data-capture-action="stop"]').disabled = true;
@@ -232,6 +264,13 @@ document.addEventListener('click', async e => {
   }
 }, true);
 
+function mountAttendeeSessionPicker() {
+  if (state.view !== 'attendee' || document.querySelector('#attendee-session-select')) return;
+  const sessions = state.data?.sessions || [];
+  if (!sessions.length) return;
+  const options = sessions.map(session => `<option value="${esc(session.id)}" ${session.id === activeSessionId() ? 'selected' : ''}>${esc(session.title)} · ${esc(session.track || '')}</option>`).join('');
+  document.querySelector('.attendee-card')?.insertAdjacentHTML('beforeend', `<label class="session-picker">Session<select id="attendee-session-select">${options}</select></label>`);
+}
 function mountAttendeeInteractions() {
   if (document.querySelector('.attendee-interactions')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-interactions"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Ask the room</h2><p>Share a question with the organizer. You can stay anonymous.</p><form id="question-form"><textarea name="body" rows="3" required placeholder="What would you like the speaker to answer?"></textarea><label class="check-row"><input type="checkbox" name="anonymous" checked> Ask anonymously</label><button class="btn lime">Submit question ↗</button></form><div id="question-status" class="muted"></div></div><div class="attendee-interaction-card"><div class="eyebrow">Close the loop</div><h2>Rate this session</h2><p>Your feedback helps the event team improve the next room.</p><form id="feedback-form"><div class="rating-row"><label>Speaker<select name="speaker_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label><label>Content<select name="content_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label></div><textarea name="comment" rows="3" placeholder="Optional feedback"></textarea><button class="btn purple">Send feedback ↗</button></form></div></section>`);
@@ -247,7 +286,7 @@ function mountTranscriptData() {
 async function refreshLiveTranscript() {
   if (state.view !== 'transcript') return;
   try {
-    const rows = await api('/api/transcripts?session_id=ses-001');
+    const rows = await api(`/api/transcripts?session_id=${encodeURIComponent(activeSessionId())}`);
     state.data = {...state.data, transcripts: rows};
     mountTranscriptData();
     const status = document.querySelector('.live-sync-status');
@@ -264,6 +303,16 @@ function mountLiveTranscriptSync() {
   document.querySelector('.transcript-toolbar')?.insertAdjacentHTML('beforeend', document.querySelector('.live-sync-status') ? '' : '<span class="live-sync-status muted">Live sync on</span>');
   refreshLiveTranscript();
   transcriptRefreshTimer = setInterval(refreshLiveTranscript, 5000);
+}
+async function mountAssetLibrary() {
+  if (state.view !== 'content' || document.querySelector('.asset-library')) return;
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card asset-library"><div class="card-head"><div><h2>Saved content library</h2><p class="muted">Generated briefs, recaps, and speaker packs remain attached to this event.</p></div><span class="badge">Persistent assets</span></div><div id="asset-list" class="insight-list"><span class="muted">Loading generated assets…</span></div></section>');
+  try {
+    const assets = await api(`/api/content/assets?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    state.assets = assets;
+    const list = document.querySelector('#asset-list');
+    if (list) list.innerHTML = assets.length ? assets.map(asset => { const output = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; return `<article class="insight asset-item"><span class="kind">${esc(asset.asset_type || 'content')} · ${esc(asset.status || 'draft')}</span><strong>${esc(asset.title || 'Generated asset')}</strong><small class="muted">${asset.created_at ? date(asset.created_at) : 'Saved now'}</small><details><summary>View content</summary><pre>${esc(output)}</pre></details><button class="btn ghost" data-action="copy-asset" data-asset-id="${esc(asset.id)}">Copy content</button></article>`; }).join('') : '<span class="muted">No generated assets yet. Create a brief or recap above.</span>';
+  } catch (error) { const list = document.querySelector('#asset-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 function mountAnalystPanel() {
   if (state.view !== 'content' || document.querySelector('.analyst-panel')) return;
@@ -286,7 +335,8 @@ async function mountAudienceData() {
   if (state.view !== 'attendee' || document.querySelector('.audience-data-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions audience-data-panel"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Questions and polls</h2><div id="question-feed" class="insight-list"><span class="muted">Loading audience activity…</span></div><div id="poll-feed" class="insight-list"></div></div></section>');
   try {
-    const [questions, polls] = await Promise.all([api('/api/questions?session_id=ses-001'), api('/api/polls?session_id=ses-001')]);
+    const sessionId = encodeURIComponent(activeSessionId());
+    const [questions, polls] = await Promise.all([api(`/api/questions?session_id=${sessionId}`), api(`/api/polls?session_id=${sessionId}`)]);
     const questionFeed = document.querySelector('#question-feed');
     if (questionFeed) questionFeed.innerHTML = questions.length ? questions.map(question => `<div class="insight"><span class="kind">${question.status || 'pending'} · ${question.votes || 0} votes</span><p>${esc(question.body)}</p><button class="btn ghost" data-question-vote="${esc(question.id)}">Upvote</button></div>`).join('') : '<span class="muted">No audience questions yet.</span>';
     const pollFeed = document.querySelector('#poll-feed');
@@ -313,7 +363,7 @@ function mountLiveMetrics() {
   [stats.attendees, live?.attendance || 0, stats.transcripts + stats.questions, stats.average_session_rating ? `${Math.round(stats.average_session_rating * 20)}%` : '—'].forEach((value, index) => { if (cards[index]) cards[index].textContent = typeof value === 'number' ? money(value) : value; });
 }
 const baseRender = render;
-render = function wrappedRender() { baseRender(); mountLiveMetrics(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountLiveTranscriptSync(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
+render = function wrappedRender() { baseRender(); mountLiveMetrics(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
@@ -342,14 +392,14 @@ document.addEventListener('submit', async e => {
   if (e.target.id === 'question-form') {
     e.preventDefault();
     const form = new FormData(e.target);
-    try { await api('/api/questions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({body:form.get('body'), anonymous:form.get('anonymous') === 'on', session_id:'ses-001'})}); e.target.reset(); document.querySelector('#question-status').textContent = 'Question submitted for organizer review.'; notify('Question submitted'); }
+    try { await api('/api/questions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({body:form.get('body'), anonymous:form.get('anonymous') === 'on', session_id:activeSessionId()})}); e.target.reset(); document.querySelector('#question-status').textContent = 'Question submitted for organizer review.'; notify('Question submitted'); }
     catch (error) { notify(error.message); }
   }
   if (e.target.id === 'feedback-form') {
     e.preventDefault();
     const form = new FormData(e.target);
     const value = name => form.get(name) ? Number(form.get(name)) : null;
-    try { await api('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:'ses-001', speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('content_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
+    try { await api('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:activeSessionId(), speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('content_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
     catch (error) { notify(error.message); }
   }
 }, true);
@@ -515,6 +565,16 @@ document.addEventListener('click', async event => {
   }
 }, true);
 
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="copy-asset"]');
+  if (!button) return;
+  event.preventDefault();
+  const asset = state.assets.find(item => item.id === button.dataset.assetId);
+  const output = typeof asset?.content === 'object' ? asset.content.output || '' : asset?.content || '';
+  if (!output) return notify('This asset has no copyable content yet');
+  await navigator.clipboard?.writeText(output);
+  notify('Asset content copied');
+}, true);
 function showGeneratedContent(result) {
   document.querySelector('.generated-output')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop generated-output"><div class="modal generated-modal"><div class="eyebrow">${result.mode === 'fallback' ? 'Local content preview' : 'Gemini content intelligence'}</div><h2>Generated content</h2><p class="muted">${result.mode === 'fallback' ? 'The local preview is ready. Add valid Vertex credentials to replace it with Gemini output.' : `Generated with ${esc(result.model || 'Gemini')}.`}</p><pre>${esc(result.output || 'No content was returned.')}</pre><div class="modal-actions"><button class="btn lime" data-action="close-generated">Done</button></div></div></div>`);
@@ -529,6 +589,9 @@ document.addEventListener('click', async e => {
     try {
       const result = await api('/api/content/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source,targetLanguage:'English',asset_type:'attendee_recap',title:'Attendee recap'})});
       showGeneratedContent(result);
+      if (result.asset) state.assets = [result.asset, ...state.assets.filter(asset => asset.id !== result.asset.id)];
+      document.querySelector('.asset-library')?.remove();
+      await mountAssetLibrary();
     } catch (error) { notify(error.message); }
     finally { generate.disabled = false; }
     return;
