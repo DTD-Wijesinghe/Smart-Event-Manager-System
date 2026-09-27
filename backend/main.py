@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
@@ -310,7 +310,7 @@ async def protect_api(request, call_next):
     token = authorization.removeprefix("Bearer ").strip()
     role = ""
     try:
-        if not settings.supabase_url or not settings.supabase_anon_key:
+        if not settings.supabase_url:
             session = demo_store.setdefault("auth_sessions", {}).get(token)
             if not session:
                 signed = _demo_token_payload(token, "access")
@@ -416,7 +416,7 @@ def forgot_password(request: RecoveryRequest) -> dict:
 
 @app.post(f"{settings.api_prefix}/auth/logout")
 def logout(authorization: str | None = Header(default=None)) -> dict:
-    if (not settings.supabase_url or not settings.supabase_anon_key) and authorization:
+    if not settings.supabase_url and authorization:
         token = authorization.removeprefix("Bearer ").strip()
         demo_store.setdefault("auth_sessions", {}).pop(token, None)
         return {"ok": True}
@@ -1169,6 +1169,19 @@ async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(
 async def unhandled_error(_, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled API error", exc_info=exc)
     return JSONResponse(status_code=500, content={"error": "The server could not complete that request"})
+
+
+@app.get("/attendee/{slug}", include_in_schema=False)
+def attendee_slug_redirect(slug: str) -> RedirectResponse:
+    """Resolve legacy/event-slug links into the tokenized public portal URL."""
+    normalized = slug.strip().lower()
+    link = next((item for item in list_items("share_links") if str(item.get("destination", "")).rstrip("/").split("/")[-1].lower() == normalized), None)
+    if not link:
+        link = next((item for item in list_items("share_links") if str(item.get("token", "")).lower().startswith(normalized)), None)
+    if not link:
+        return RedirectResponse(url="/#landing", status_code=307)
+    token = link.get("token")
+    return RedirectResponse(url=f"/?share={token}#attendee", status_code=307)
 
 
 app.mount("/", StaticFiles(directory=Path(FRONTEND_DIR), html=True), name="frontend")
