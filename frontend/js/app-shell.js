@@ -74,7 +74,8 @@ async function load() {
   }
   // Do not render a data-dependent organizer view until the dashboard has
   // arrived; the first render must remain safe on a cold page load.
-  state.view = 'landing';
+  const requestedView = location.hash.replace(/^#/, '').split('?')[0];
+  state.view = ['auth', 'landing'].includes(requestedView) ? requestedView || 'landing' : 'landing';
   render();
   try {
     const shareToken = new URLSearchParams(location.search).get('share');
