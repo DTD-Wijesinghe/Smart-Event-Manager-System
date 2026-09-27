@@ -3,7 +3,7 @@ import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
-TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "attendees", "insights", "share_links", "transcripts", "takeaways", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets"}
+TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "attendees", "insights", "share_links", "transcripts", "takeaways", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "files", "processing_jobs"}
 
 
 def storage_mode() -> str:
@@ -45,6 +45,46 @@ def list_items(table: str) -> list[dict]:
     return _supabase_list(table) if storage_mode() == "supabase" else demo_store[table]
 
 
+def create_file(payload: dict) -> dict:
+    event_id, session_id = _default_foreign_keys(payload)
+    item = {"id": f"file-{len(demo_store['files']) + 1:04d}", "event_id": event_id, "session_id": session_id, "original_name": payload.get("original_name", "upload"), "storage_path": payload.get("storage_path", ""), "mime_type": payload.get("mime_type", "application/octet-stream"), "size_bytes": int(payload.get("size_bytes") or 0), "status": payload.get("status", "uploaded"), "created_at": utc_now()}
+    return _create_item("files", item)
+
+
+def create_processing_job(payload: dict) -> dict:
+    event_id, session_id = _default_foreign_keys(payload)
+    item = {"id": f"job-{len(demo_store['processing_jobs']) + 1:04d}", "event_id": event_id, "session_id": session_id, "job_type": payload.get("job_type", "transcription"), "status": payload.get("status", "queued"), "progress": int(payload.get("progress") or 0), "error_message": payload.get("error_message"), "attempts": int(payload.get("attempts") or 0), "created_at": utc_now(), "updated_at": utc_now()}
+    return _create_item("processing_jobs", item)
+
+
+def update_processing_job(job_id: str, **changes: object) -> dict:
+    job = next((item for item in demo_store["processing_jobs"] if item.get("id") == job_id), None)
+    if not job:
+        raise KeyError("Processing job not found")
+    job.update({key: value for key, value in changes.items() if value is not None})
+    job["updated_at"] = utc_now()
+    if storage_mode() == "supabase" and not str(job_id).startswith("job-"):
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/processing_jobs?id=eq.{job_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json={key: value for key, value in changes.items() if value is not None}, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return rows[0]
+    return job
+
+
+def delete_file(file_id: str) -> dict:
+    index = next((index for index, item in enumerate(demo_store["files"]) if item.get("id") == file_id), None)
+    if index is None:
+        raise KeyError("File not found")
+    removed = demo_store["files"].pop(index)
+    if storage_mode() == "supabase" and not str(file_id).startswith("file-"):
+        response = httpx.delete(f"{settings.supabase_url}/rest/v1/files?id=eq.{file_id}", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+    return {"deleted": True, "file": removed}
+
+
 def attendee_matches(attendee_id: str) -> list[dict]:
     attendees = list_items("attendees")
     target = next((item for item in attendees if item.get("id") == attendee_id), None)
@@ -64,7 +104,7 @@ def attendee_matches(attendee_id: str) -> list[dict]:
 
 
 def set_attendee_checkin(attendee_id: str, checked_in: bool) -> dict:
-    attendee = next((item for item in demo_store["attendees"] if item.get("id") == attendee_id), None)
+    attendee = next((item for item in list_items("attendees") if item.get("id") == attendee_id), None)
     if not attendee:
         raise KeyError("Attendee not found")
     attendee["checked_in"] = checked_in
@@ -135,8 +175,8 @@ def _remote_insert(table: str, item: dict) -> dict | None:
     # The dashboard may temporarily be rendering local demo rows while a new
     # Supabase project has no seed data. Never send those readable demo IDs to
     # UUID foreign-key columns; keep the action local until real rows exist.
-    foreign_keys = ("event_id", "session_id", "poll_id", "option_id")
-    if any(str(item.get(key, "")).startswith(("evt-", "ses-", "poll-", "q-")) for key in foreign_keys if item.get(key)):
+    foreign_keys = ("organization_id", "event_id", "session_id", "poll_id", "option_id")
+    if any(str(item.get(key, "")).startswith(("org-", "evt-", "ses-", "poll-", "q-")) for key in foreign_keys if item.get(key)):
         return None
     payload = {key: value for key, value in item.items() if key != "id"}
     response = httpx.post(f"{settings.supabase_url}/rest/v1/{table}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=payload, timeout=20)
@@ -168,7 +208,7 @@ def create_session(payload: dict) -> dict:
 
 
 def update_session(session_id: str, payload: dict) -> dict:
-    session = next((item for item in demo_store["sessions"] if item.get("id") == session_id), None)
+    session = next((item for item in list_items("sessions") if item.get("id") == session_id), None)
     if not session:
         raise KeyError("Session not found")
     session.update({key: value for key, value in payload.items() if value is not None})
@@ -188,10 +228,12 @@ def update_session(session_id: str, payload: dict) -> dict:
 
 
 def delete_session(session_id: str) -> dict:
-    index = next((index for index, item in enumerate(demo_store["sessions"]) if item.get("id") == session_id), None)
-    if index is None:
+    session = next((item for item in list_items("sessions") if item.get("id") == session_id), None)
+    if not session:
         raise KeyError("Session not found")
-    removed = demo_store["sessions"].pop(index)
+    removed = session
+    if str(session_id).startswith("ses-"):
+        demo_store["sessions"][:] = [item for item in demo_store["sessions"] if item.get("id") != session_id]
     if storage_mode() == "supabase" and not str(session_id).startswith("ses-"):
         response = httpx.delete(f"{settings.supabase_url}/rest/v1/sessions?id=eq.{session_id}", headers=_headers(), timeout=20)
         if response.status_code != 404:
@@ -200,7 +242,7 @@ def delete_session(session_id: str) -> dict:
 
 
 def duplicate_session(session_id: str) -> dict:
-    source = next((item for item in demo_store["sessions"] if item.get("id") == session_id), None)
+    source = next((item for item in list_items("sessions") if item.get("id") == session_id), None)
     if not source:
         raise KeyError("Session not found")
     return create_session({"event_id": source.get("event_id"), "title": f"{source.get('title', 'Session')} (copy)", "track": source.get("track"), "room": source.get("room"), "speaker": source.get("speaker"), "starts_at": source.get("starts_at"), "ends_at": source.get("ends_at")})
@@ -233,7 +275,7 @@ def _create_item(table: str, item: dict) -> dict:
     demo_store[table].insert(0, item)
     if storage_mode() == "supabase":
         if table == "events":
-            if not item.get("organization_id"): return item
+            if not item.get("organization_id") or str(item.get("organization_id")).startswith("org-"): return item
             remote_item = {key: value for key, value in item.items() if key not in {"id", "name"}}
             remote_item["title"] = item.get("name") or item.get("title") or "New event"
             return _remote_insert("events", remote_item) or item
@@ -291,7 +333,8 @@ def _create_item(table: str, item: dict) -> dict:
 
 def create_event(payload: dict) -> dict:
     number = len(demo_store["events"]) + 1
-    item = {"id": f"evt-{number:03d}", "organization_id": payload.get("organization_id"), "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
+    organization_id = payload.get("organization_id") or next((item.get("id") for item in list_items("organizations")), "org-demo")
+    item = {"id": f"evt-{number:03d}", "organization_id": organization_id, "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
     return _create_item("events", item)
 
 
@@ -363,11 +406,13 @@ def update_team_member(member_id: str, role: str | None = None, status: str | No
 
 
 def delete_event(event_id: str) -> dict:
-    index = next((index for index, item in enumerate(demo_store["events"]) if item.get("id") == event_id), None)
-    if index is None:
+    event = next((item for item in list_items("events") if item.get("id") == event_id), None)
+    if not event:
         raise KeyError("Event not found")
-    removed = demo_store["events"].pop(index)
-    demo_store["sessions"][:] = [item for item in demo_store["sessions"] if item.get("event_id") != event_id]
+    removed = event
+    if str(event_id).startswith("evt-"):
+        demo_store["events"][:] = [item for item in demo_store["events"] if item.get("id") != event_id]
+        demo_store["sessions"][:] = [item for item in demo_store["sessions"] if item.get("event_id") != event_id]
     if storage_mode() == "supabase" and not str(event_id).startswith("evt-"):
         response = httpx.delete(f"{settings.supabase_url}/rest/v1/events?id=eq.{event_id}", headers=_headers(), timeout=20)
         if response.status_code != 404:
@@ -376,7 +421,7 @@ def delete_event(event_id: str) -> dict:
 
 
 def update_event(event_id: str, payload: dict) -> dict:
-    event = next((item for item in demo_store["events"] if item["id"] == event_id), None)
+    event = next((item for item in list_items("events") if item.get("id") == event_id), None)
     if not event:
         raise KeyError("Event not found")
     event.update({key: value for key, value in payload.items() if value is not None})
@@ -405,7 +450,7 @@ def create_question(payload: dict) -> dict:
 
 
 def vote_question(question_id: str, voter_id: str = "anonymous") -> dict:
-    question = next((item for item in demo_store["questions"] if item["id"] == question_id), None)
+    question = next((item for item in list_items("questions") if item.get("id") == question_id), None)
     if not question:
         raise KeyError("Question not found")
     vote_key = f"{question_id}:{voter_id}"
@@ -418,7 +463,7 @@ def vote_question(question_id: str, voter_id: str = "anonymous") -> dict:
 def moderate_question(question_id: str, status: str | None = None, pinned: bool | None = None) -> dict:
     if status is not None and status not in {"pending", "approved", "answered", "dismissed"}:
         raise ValueError("Unsupported question status")
-    question = next((item for item in demo_store["questions"] if item.get("id") == question_id), None)
+    question = next((item for item in list_items("questions") if item.get("id") == question_id), None)
     if not question:
         raise KeyError("Question not found")
     if status is not None:

@@ -138,6 +138,12 @@ create table if not exists public.generated_assets (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   created_by uuid references public.profiles(id) on delete set null, asset_type text not null, title text not null, content jsonb not null default '{}', status text not null default 'draft', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+create table if not exists public.files (
+  id uuid primary key default gen_random_uuid(), event_id uuid references public.events(id) on delete cascade,
+  session_id uuid references public.sessions(id) on delete cascade, original_name text not null, storage_path text not null,
+  mime_type text not null, size_bytes bigint not null default 0, status text not null default 'uploaded',
+  created_at timestamptz not null default now()
+);
 create table if not exists public.processing_jobs (
   id uuid primary key default gen_random_uuid(), event_id uuid references public.events(id) on delete cascade, session_id uuid references public.sessions(id) on delete cascade,
   job_type text not null, status text not null default 'queued' check (status in ('queued','running','completed','failed','retrying')), progress integer not null default 0 check (progress between 0 and 100), error_message text, attempts integer not null default 0, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
@@ -194,5 +200,6 @@ alter table public.poll_responses enable row level security;
 alter table public.feedback enable row level security;
 alter table public.brand_kits enable row level security;
 alter table public.generated_assets enable row level security;
+alter table public.files enable row level security;
 alter table public.processing_jobs enable row level security;
 alter table public.audit_logs enable row level security;

@@ -46,6 +46,11 @@ keys.
 
 The app runs in demo mode until `SUPABASE_URL` and either `SUPABASE_ANON_KEY` or `SUPABASE_SERVICE_ROLE_KEY` are configured.
 
+In demo mode, registration and login still use PBKDF2 password hashes and
+random bearer sessions; arbitrary passwords are rejected. In Supabase mode,
+organizer API requests are checked against the Supabase user session before
+the repository is reached. Public attendee share links remain readable.
+
 ## Gemini API integration
 
 This project uses Vertex AI service-account authentication. Copy `.env.example` to `.env`, set `VERTEX_SERVICE_ACCOUNT_JSON` to the local credential file, set `GCP_PROJECT`, and set `GCP_LOCATION`. Keep the JSON file out of Git. A typical setup is:
@@ -100,6 +105,10 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `POST /api/ai/summarize`
 - `POST /api/ai/translate`
 - `POST /api/transcription/batch`
+- `POST /api/files/upload` — validate and queue an audio, video, TXT, SRT, or VTT upload for background processing
+- `GET /api/files?event_id=...&session_id=...`
+- `DELETE /api/files/{file_id}` — remove an uploaded file and its local stored copy
+- `GET /api/processing-jobs?event_id=...&session_id=...` — inspect queued/running/completed/failed processing jobs
 
 ## Snapsight-style event workflow
 

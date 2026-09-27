@@ -27,6 +27,8 @@ class Settings:
     supabase_url = os.getenv("SUPABASE_URL", "")
     supabase_anon_key = os.getenv("SUPABASE_ANON_KEY", "")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_ANON_KEY", "")
+    data_dir = Path(os.getenv("DATA_DIR", str(ROOT_DIR / "data")))
+    max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "20"))
 
 
 settings = Settings()

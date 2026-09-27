@@ -1,14 +1,46 @@
 from pathlib import Path
+import re
+import uuid
+import logging
+import hashlib
+import hmac
+import secrets
 from typing import Any
 import httpx
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
-from .repository import analytics, attendee_matches, create_event, create_feedback, create_generated_asset, create_insight, create_invitation, create_poll, create_question, create_session, create_takeaway, create_transcript, dashboard, delete_event, delete_session, duplicate_session, ensure_share_link, get_brand_kit, get_share_link, list_items, moderate_question, respond_poll, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, update_event, update_poll, update_session, update_team_member, upsert_brand_kit, vote_question
+from .demo_store import demo_store
+from .repository import analytics, attendee_matches, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_session, create_takeaway, create_transcript, dashboard, delete_event, delete_file, delete_session, duplicate_session, ensure_share_link, get_brand_kit, get_share_link, list_items, moderate_question, respond_poll, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, update_event, update_poll, update_processing_job, update_session, update_team_member, upsert_brand_kit, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
+
+logger = logging.getLogger("smart_event_manager")
+
+
+def _demo_password(password: str, salt: str | None = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 310_000).hex()
+    return f"pbkdf2$310000${salt}${digest}"
+
+
+def _demo_password_matches(password: str, stored: str) -> bool:
+    try:
+        _, rounds, salt, expected = stored.split("$", 3)
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(rounds)).hex()
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def _demo_session(email: str) -> dict:
+    access = secrets.token_urlsafe(32)
+    refresh = secrets.token_urlsafe(32)
+    demo_store.setdefault("auth_sessions", {})[access] = {"email": email, "refresh_token": refresh}
+    demo_store.setdefault("auth_refresh_tokens", {})[refresh] = email
+    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer", "user": {"email": email}}
 
 
 class SummaryRequest(BaseModel):
@@ -139,7 +171,33 @@ class AnalystRequest(BaseModel):
 
 
 app = FastAPI(title="Smart Event Manager API", version="1.0.0")
+# Runtime build marker: upload/job pipeline and guarded auth enabled.
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=settings.allowed_origins != ["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def protect_api(request, call_next):
+    """Validate Supabase sessions for organizer APIs when database mode is enabled.
+
+    Demo mode remains usable locally, while deployed Supabase mode rejects
+    unauthenticated organizer requests before they reach the repository.
+    Public share links and auth bootstrap routes stay accessible.
+    """
+    path = request.url.path
+    public = {f"{settings.api_prefix}/health"} | {f"{settings.api_prefix}/auth/{name}" for name in ("register", "login", "forgot-password", "refresh", "reset-password", "logout")}
+    if not settings.supabase_url or not path.startswith(f"{settings.api_prefix}/") or path in public or path.startswith(f"{settings.api_prefix}/public/share/"):
+        return await call_next(request)
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return JSONResponse(status_code=401, content={"detail": "Organizer login is required"})
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"{settings.supabase_url}/auth/v1/user", headers={"apikey": settings.supabase_anon_key, "Authorization": authorization})
+        if not response.is_success:
+            return JSONResponse(status_code=401, content={"detail": "Organizer session is invalid or expired"})
+    except httpx.HTTPError:
+        return JSONResponse(status_code=503, content={"detail": "Authentication service is unavailable"})
+    return await call_next(request)
 
 
 @app.get(f"{settings.api_prefix}/health")
@@ -156,7 +214,12 @@ def _auth_headers() -> dict[str, str]:
 def register(request: AuthRequest) -> dict:
     if len(request.password) < 8: raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     if not settings.supabase_url or not settings.supabase_anon_key:
-        return {"mode": "demo", "session": {"access_token": "demo-session", "user": {"email": request.email}}}
+        email = request.email.strip().lower()
+        users = demo_store.setdefault("auth_users", [])
+        if any(user.get("email") == email for user in users):
+            raise HTTPException(status_code=409, detail="An account with this email already exists")
+        users.append({"id": f"user-demo-{len(users) + 1:04d}", "email": email, "password_hash": _demo_password(request.password), "role": "organization_admin"})
+        return {"mode": "demo", "session": _demo_session(email)}
     response = httpx.post(f"{settings.supabase_url}/auth/v1/signup", headers=_auth_headers(), json={"email": request.email, "password": request.password}, timeout=20)
     if not response.is_success:
         detail = response.json().get("msg") or response.json().get("error_description") or "Registration failed"
@@ -167,7 +230,11 @@ def register(request: AuthRequest) -> dict:
 @app.post(f"{settings.api_prefix}/auth/login")
 def login(request: AuthRequest) -> dict:
     if not settings.supabase_url or not settings.supabase_anon_key:
-        return {"mode": "demo", "session": {"access_token": "demo-session", "user": {"email": request.email}}}
+        email = request.email.strip().lower()
+        user = next((item for item in demo_store.setdefault("auth_users", []) if item.get("email") == email), None)
+        if not user or not _demo_password_matches(request.password, user.get("password_hash", "")):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        return {"mode": "demo", "session": _demo_session(email)}
     response = httpx.post(f"{settings.supabase_url}/auth/v1/token?grant_type=password", headers=_auth_headers(), json={"email": request.email, "password": request.password}, timeout=20)
     if not response.is_success:
         detail = response.json().get("error_description") or response.json().get("msg") or "Login failed"
@@ -187,6 +254,10 @@ def forgot_password(request: RecoveryRequest) -> dict:
 
 @app.post(f"{settings.api_prefix}/auth/logout")
 def logout(authorization: str | None = Header(default=None)) -> dict:
+    if not settings.supabase_url and authorization:
+        token = authorization.removeprefix("Bearer ").strip()
+        demo_store.setdefault("auth_sessions", {}).pop(token, None)
+        return {"ok": True}
     if settings.supabase_url and settings.supabase_anon_key and authorization:
         response = httpx.post(f"{settings.supabase_url}/auth/v1/logout", headers={"apikey": settings.supabase_anon_key, "Authorization": authorization}, timeout=20)
         if not response.is_success:
@@ -199,7 +270,10 @@ def refresh_session(request: RefreshRequest) -> dict:
     if not request.refresh_token.strip():
         raise HTTPException(status_code=400, detail="Refresh token is required")
     if not settings.supabase_url or not settings.supabase_anon_key:
-        return {"mode": "demo", "session": {"access_token": "demo-session", "refresh_token": request.refresh_token}}
+        email = demo_store.setdefault("auth_refresh_tokens", {}).get(request.refresh_token)
+        if not email:
+            raise HTTPException(status_code=401, detail="Refresh session is invalid or expired")
+        return {"mode": "demo", "session": _demo_session(email)}
     response = httpx.post(f"{settings.supabase_url}/auth/v1/token?grant_type=refresh_token", headers=_auth_headers(), json={"refresh_token": request.refresh_token}, timeout=20)
     if not response.is_success:
         raise HTTPException(status_code=response.status_code, detail="Session refresh failed")
@@ -376,6 +450,83 @@ def export_transcripts(format: str = "txt") -> PlainTextResponse:
         body = ("WEBVTT\n\n" if normalized == "vtt" else "") + "\n\n".join(blocks)
         media_type = "text/vtt" if normalized == "vtt" else "application/x-subrip"
     return PlainTextResponse(body, media_type=media_type, headers={"Content-Disposition": f"attachment; filename=smart-event-transcript.{normalized}"})
+
+
+ALLOWED_UPLOAD_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".webm", ".txt", ".srt", ".vtt"}
+
+
+def _safe_upload_name(name: str) -> str:
+    base = Path(name or "upload").name
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", base)[:160] or "upload"
+
+
+async def _process_upload(file_record: dict, job: dict, raw: bytes, language: str) -> None:
+    try:
+        update_processing_job(job["id"], status="running", progress=10, attempts=int(job.get("attempts") or 0) + 1)
+        suffix = Path(file_record["original_name"]).suffix.lower()
+        if suffix in {".txt", ".srt", ".vtt"}:
+            text = raw.decode("utf-8", errors="replace")
+            text = re.sub(r"^\s*\d+\s*$", "", text, flags=re.MULTILINE)
+            text = re.sub(r"\d{2}:\d{2}(?::\d{2})?[,.]\d{3}\s*-->.*", "", text)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            model = "uploaded-transcript"
+        else:
+            result = transcribe(raw, file_record["mime_type"], [] if language == "auto" else [language])
+            text, model = result.get("transcript", ""), result.get("model", "uploaded-audio")
+        if not text.strip():
+            raise ValueError("The uploaded file did not contain readable transcript text")
+        capture = {"text": text, "model": model, "language": language, "session_id": file_record["session_id"], "speaker": "Uploaded recording"}
+        create_transcript(capture)
+        create_insight(capture)
+        update_processing_job(job["id"], status="completed", progress=100, error_message=None)
+    except Exception as exc:
+        update_processing_job(job["id"], status="failed", progress=100, error_message=str(exc))
+
+
+@app.post(f"{settings.api_prefix}/files/upload", status_code=202)
+async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = File(...), session_id: str = Form("ses-001"), event_id: str | None = Form(None), language: str = Form("auto")) -> dict:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=415, detail=f"Unsupported upload type: {suffix or 'missing extension'}")
+    raw = await file.read()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"Upload exceeds the {settings.max_upload_mb} MB limit")
+    event_id = event_id or next((item.get("event_id") for item in list_items("sessions") if item.get("id") == session_id), None)
+    upload_dir = settings.data_dir / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}-{_safe_upload_name(file.filename or 'upload') }"
+    destination = upload_dir / stored_name
+    destination.write_bytes(raw)
+    file_record = create_file({"event_id": event_id, "session_id": session_id, "original_name": file.filename or "upload", "storage_path": str(destination), "mime_type": file.content_type or "application/octet-stream", "size_bytes": len(raw), "status": "processing"})
+    job = create_processing_job({"event_id": event_id, "session_id": session_id, "job_type": "transcription", "status": "queued", "progress": 0})
+    background_tasks.add_task(_process_upload, file_record, job, raw, language)
+    return {"file": file_record, "job": job, "status": "queued"}
+
+
+@app.get(f"{settings.api_prefix}/files")
+def get_files(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    return [item for item in list_items("files") if (not event_id or item.get("event_id") == event_id) and (not session_id or item.get("session_id") == session_id)]
+
+
+@app.delete(f"{settings.api_prefix}/files/{{file_id}}")
+def remove_file(file_id: str) -> dict:
+    try:
+        result = delete_file(file_id)
+        path = result["file"].get("storage_path")
+        if path:
+            stored = Path(path).resolve()
+            upload_root = settings.data_dir.resolve() / "uploads"
+            if stored.parent == upload_root and stored.exists():
+                stored.unlink()
+        return result
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/processing-jobs")
+def get_processing_jobs(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    return [item for item in list_items("processing_jobs") if (not event_id or item.get("event_id") == event_id) and (not session_id or item.get("session_id") == session_id)]
 
 
 @app.get(f"{settings.api_prefix}/questions")
@@ -582,7 +733,9 @@ async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(
 
 
 @app.exception_handler(Exception)
-async def unhandled_error(_, exc: Exception) -> JSONResponse: return JSONResponse(status_code=500, content={"error": str(exc)})
+async def unhandled_error(_, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled API error", exc_info=exc)
+    return JSONResponse(status_code=500, content={"error": "The server could not complete that request"})
 
 
 app.mount("/", StaticFiles(directory=Path(FRONTEND_DIR), html=True), name="frontend")

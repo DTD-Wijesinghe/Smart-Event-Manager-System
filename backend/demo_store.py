@@ -33,6 +33,11 @@ demo_store = {
     "feedback": [],
     "generated_assets": [],
     "takeaways": [],
+    "files": [],
+    "processing_jobs": [],
+    "auth_users": [],
+    "auth_sessions": {},
+    "auth_refresh_tokens": {},
 }
 
 
