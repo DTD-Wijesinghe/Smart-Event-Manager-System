@@ -434,7 +434,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-feedback-analytics", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-slide-export", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1314,14 +1314,46 @@ def get_generated_assets(event_id: str | None = None, session_id: str | None = N
     return [asset for asset in assets if (not event_id or asset.get("event_id") == event_id) and (not session_id or asset.get("session_id") == session_id)]
 
 
+def _slide_deck_html(title: str, output: str, primary: str = "#7568f3", accent: str = "#e4ff63") -> str:
+    """Turn a grounded presentation outline into a self-contained browser deck."""
+    sections: list[dict[str, list[str] | str]] = []
+    current: dict[str, list[str] | str] = {"title": title, "lines": []}
+    for raw in output.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = re.match(r"^#{1,3}\s+(.+)$", line)
+        if heading:
+            if current["lines"] or not sections:
+                sections.append(current)
+            current = {"title": heading.group(1).strip(), "lines": []}
+        else:
+            current["lines"].append(line)
+    if current["lines"] or not sections:
+        sections.append(current)
+    slides = []
+    for index, section in enumerate(sections[:24], 1):
+        items = section["lines"]
+        markup = []
+        for item in items:
+            if re.match(r"^(?:[-*•]|\d+[.)])\s+", item):
+                markup.append(f"<li>{html_escape(re.sub(r'^(?:[-*•]|\\d+[.)])\\s+', '', item))}</li>")
+            else:
+                markup.append(f"<p>{html_escape(item)}</p>")
+        body = f"<ul>{''.join(markup)}</ul>" if any(item.startswith("<li>") for item in markup) else "".join(markup)
+        slides.append(f"<article class='slide' data-slide='{index}'><span class='number'>{index:02d}</span><h2>{html_escape(str(section['title']))}</h2><div class='body'>{body}</div></article>")
+    safe_title = html_escape(title)
+    return f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{safe_title} · presentation</title><style>:root{{--primary:{html_escape(primary)};--accent:{html_escape(accent)};--ink:#171827;--paper:#f4f3ef}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:18px/1.55 Inter,system-ui,sans-serif}}.deck{{max-width:1180px;margin:auto;padding:24px}}header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}}.brand{{font-weight:900;letter-spacing:-.04em}}.controls{{display:flex;gap:8px}}button{{border:0;border-radius:999px;background:var(--ink);color:#fff;padding:10px 16px;font-weight:800;cursor:pointer}}button:hover{{background:var(--primary)}}.slide{{display:none;min-height:calc(100vh - 150px);border-radius:28px;padding:clamp(36px,8vw,110px);background:white;box-shadow:0 20px 70px #17182718;position:relative;overflow:hidden}}.slide.active{{display:block}}.slide:after{{content:'';position:absolute;width:360px;height:360px;border-radius:50%;right:-120px;bottom:-140px;background:var(--primary);opacity:.12}}.number{{color:var(--primary);font-weight:900;letter-spacing:.14em}}h2{{font-size:clamp(42px,7vw,92px);line-height:.98;letter-spacing:-.08em;max-width:900px;margin:26px 0 42px}}.body{{max-width:800px;font-size:clamp(20px,2.5vw,30px);color:#555a6d}}.body ul{{padding-left:1.2em}}.body li{{margin:12px 0}}footer{{padding:16px 0;color:#777;font-size:13px}}@media print{{.controls,header,footer{{display:none}}.slide,.slide.active{{display:block;page-break-after:always;min-height:100vh;box-shadow:none}}.deck{{padding:0}}}}</style></head><body><div class='deck'><header><div class='brand'>Smart Event Manager · {safe_title}</div><div class='controls'><button onclick='previousSlide()'>← Previous</button><button onclick='nextSlide()'>Next →</button><button onclick='window.print()'>Print / PDF</button></div></header><main>{''.join(slides)}</main><footer><span id='counter'></span> · Use Print / PDF to save a shareable deck.</footer></div><script>const slides=[...document.querySelectorAll('.slide')];let current=0;function show(index){{current=(index+slides.length)%slides.length;slides.forEach((slide,i)=>slide.classList.toggle('active',i===current));document.querySelector('#counter').textContent=`Slide ${{current+1}} of ${{slides.length}}`;}}function nextSlide(){{show(current+1)}}function previousSlide(){{show(current-1)}}document.addEventListener('keydown',event=>{{if(event.key==='ArrowRight')nextSlide();if(event.key==='ArrowLeft')previousSlide();}});show(0);</script></body></html>"
+
+
 @app.get(f"{settings.api_prefix}/content/assets/{{asset_id}}/export", response_model=None)
 def export_content_asset(asset_id: str, format: str = "markdown"):
     asset = next((row for row in list_items("generated_assets") if row.get("id") == asset_id), None)
     if not asset:
         raise HTTPException(status_code=404, detail="Content asset not found")
     normalized = format.lower()
-    if normalized not in {"markdown", "json", "txt"}:
-        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, or txt")
+    if normalized not in {"markdown", "json", "txt", "html"}:
+        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, txt, or html")
     content = asset.get("content") if isinstance(asset.get("content"), dict) else {"output": asset.get("content", "")}
     title = asset.get("title") or "Generated event asset"
     safe_name = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "event-asset"
@@ -1330,6 +1362,10 @@ def export_content_asset(asset_id: str, format: str = "markdown"):
     if normalized == "json":
         return JSONResponse(content=asset, headers=headers)
     output = str(content.get("output") or content.get("body") or "").strip()
+    if normalized == "html":
+        event = next((row for row in list_items("events") if row.get("id") == asset.get("event_id")), {})
+        brand = get_brand_kit(event.get("organization_id") or "org-demo")
+        return PlainTextResponse(_slide_deck_html(title, output, brand.get("primary_color", "#7568f3"), brand.get("accent_color", "#e4ff63")), media_type="text/html", headers=headers)
     if normalized == "txt":
         return PlainTextResponse(output, media_type="text/plain", headers=headers)
     body = f"# {title}\n\n- **Type:** {asset.get('asset_type', 'content')}\n- **Status:** {asset.get('status', 'draft')}\n\n{output}\n"
