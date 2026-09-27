@@ -71,6 +71,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/dashboard`
 - `GET /api/sessions`
 - `POST`, `PATCH`, `DELETE /api/sessions` plus `POST /api/sessions/{session_id}/duplicate`
+- `POST /api/sessions/{session_id}/start` and `/stop`
 - `GET /api/events`
 - `POST /api/events`
 - `PATCH /api/events/{event_id}`

@@ -153,6 +153,12 @@ def duplicate_session(session_id: str) -> dict:
     return create_session({"event_id": source.get("event_id"), "title": f"{source.get('title', 'Session')} (copy)", "track": source.get("track"), "room": source.get("room"), "speaker": source.get("speaker"), "starts_at": source.get("starts_at"), "ends_at": source.get("ends_at")})
 
 
+def set_session_status(session_id: str, status: str) -> dict:
+    if status not in {"live", "completed", "scheduled", "upcoming", "archived"}:
+        raise ValueError("Unsupported session status")
+    return update_session(session_id, {"status": status})
+
+
 def create_transcript(payload: dict) -> dict:
     event_id, session_id = _default_foreign_keys(payload)
     item = {"id": f"trn-{len(demo_store['transcripts']) + 1:03d}", "event_id": event_id, "session_id": session_id, "language": payload.get("language", "auto"), "model": payload.get("model", ""), "text": payload.get("text", ""), "speaker": payload.get("speaker", "Live speaker"), "created_at": utc_now()}

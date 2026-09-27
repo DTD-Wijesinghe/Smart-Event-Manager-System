@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
-from .repository import analytics, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, delete_event, delete_session, duplicate_session, get_share_link, list_items, respond_poll, search_knowledge, storage_mode, topic_cloud, update_event, update_session, vote_question
+from .repository import analytics, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, delete_event, delete_session, duplicate_session, get_share_link, list_items, respond_poll, search_knowledge, set_session_status, storage_mode, topic_cloud, update_event, update_session, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 
@@ -169,6 +169,18 @@ def copy_session(session_id: str) -> dict:
 def remove_session(session_id: str) -> dict:
     try: return delete_session(session_id)
     except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post(f"{settings.api_prefix}/sessions/{{session_id}}/start")
+def start_session(session_id: str) -> dict:
+    try: return set_session_status(session_id, "live")
+    except (KeyError, ValueError) as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post(f"{settings.api_prefix}/sessions/{{session_id}}/stop")
+def stop_session(session_id: str) -> dict:
+    try: return set_session_status(session_id, "completed")
+    except (KeyError, ValueError) as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/events")

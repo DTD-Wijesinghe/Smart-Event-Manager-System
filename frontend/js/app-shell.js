@@ -134,6 +134,7 @@ document.addEventListener('click', async e => {
       };
       window.__captureRecorder = recorder;
       recorder.start(1000);
+      await api('/api/sessions/ses-001/start', {method:'POST'}).catch(() => null);
       document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
       document.querySelector('[data-capture-action="stop"]').disabled = false;
@@ -142,6 +143,7 @@ document.addEventListener('click', async e => {
   } else if (captureAction === 'stop') {
     if (window.__captureRecorder?.state === 'recording') window.__captureRecorder.stop();
     window.__captureStream?.getTracks().forEach(track => track.stop());
+    await api('/api/sessions/ses-001/stop', {method:'POST'}).catch(() => null);
     document.querySelector('#capture-status').textContent = 'Processing';
     document.querySelector('[data-capture-action="start"]').disabled = false;
     document.querySelector('[data-capture-action="stop"]').disabled = true;
