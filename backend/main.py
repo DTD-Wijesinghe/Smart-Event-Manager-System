@@ -14,6 +14,7 @@ import secrets
 import time
 import base64
 import json
+from html import escape as html_escape
 from typing import Any
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -1577,6 +1578,47 @@ async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(
 async def unhandled_error(_, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled API error", exc_info=exc)
     return JSONResponse(status_code=500, content={"error": "The server could not complete that request"})
+
+
+@app.get("/microsite/{slug}", include_in_schema=False)
+def public_microsite(slug: str) -> PlainTextResponse:
+    """Render a public, branded event recap page from published event data.
+
+    The page intentionally reads only public event metadata and published content;
+    organizer credentials, drafts, private files, and raw transcripts never leave
+    the protected workspace through this route.
+    """
+    normalized = slug.strip().lower()
+    event = next((item for item in list_items("events") if str(item.get("slug", "")).lower() == normalized), None)
+    if not event or str(event.get("privacy", "public")).lower() == "private":
+        return PlainTextResponse("Event microsite not found", status_code=404)
+    event_id = event.get("id")
+    sessions = [item for item in list_items("sessions") if item.get("event_id") == event_id and item.get("status") != "archived"]
+    session_ids = {item.get("id") for item in sessions}
+    speakers = [item for item in list_items("speakers") if any(link.get("speaker_id") == item.get("id") and link.get("session_id") in session_ids for link in list_items("session_speakers"))]
+    takeaways = [item for item in list_items("takeaways") if item.get("event_id") == event_id or item.get("session_id") in session_ids][:8]
+    topics = topic_cloud(event_id)[:12]
+    assets = [item for item in list_items("generated_assets") if item.get("event_id") == event_id and item.get("status") == "published"][:8]
+    share = next((item for item in list_items("share_links") if item.get("event_id") == event_id), None)
+    attendee_url = f"/attendee/{html_escape(str(event.get('slug') or 'event'))}"
+    brand = get_brand_kit(event.get("organization_id") or "org-demo") or {}
+    primary = html_escape(str(brand.get("primary_color") or event.get("brand_color") or "#7568f3"))
+    accent = html_escape(str(brand.get("accent_color") or "#e4ff63"))
+    ink = html_escape(str(brand.get("secondary_color") or "#171827"))
+    title = html_escape(str(event.get("name") or event.get("title") or "Event recap"))
+    description = html_escape(str(event.get("description") or "A public recap of the ideas, people, and moments that shaped this event."))
+    venue = html_escape(str(event.get("venue") or "Live event experience"))
+    date_label = html_escape(str(event.get("starts_at") or "").split("T")[0])
+    session_cards = "".join(f"<article class='session'><span>{html_escape(str(item.get('track') or 'Program'))} · {html_escape(str(item.get('room') or 'Main room'))}</span><h3>{html_escape(str(item.get('title') or 'Session'))}</h3><p>{html_escape(str(item.get('summary') or item.get('description') or 'Session details will be shared here.'))}</p><small>{html_escape(str(item.get('speaker') or 'Event speaker'))}</small></article>" for item in sessions)
+    speaker_cards = "".join(f"<article class='speaker'><div class='avatar'>{html_escape(str(item.get('name') or 'S')[:1].upper())}</div><div><strong>{html_escape(str(item.get('name') or 'Speaker'))}</strong><span>{html_escape(' · '.join(filter(None, [str(item.get('title') or ''), str(item.get('company') or '')])))} </span><p>{html_escape(str(item.get('biography') or ''))}</p></div></article>" for item in speakers)
+    takeaway_cards = "".join(f"<article class='takeaway'><b>{html_escape(str(item.get('title') or 'Event signal'))}</b><p>{html_escape(str(item.get('body') or ''))}</p></article>" for item in takeaways)
+    topic_pills = "".join(f"<span>{html_escape(str(item.get('label') or 'Topic'))}<small>{html_escape(str(item.get('count') or 0))}</small></span>" for item in topics)
+    asset_cards = "".join(f"<article class='asset'><span>Published content</span><h3>{html_escape(str(item.get('title') or 'Event asset'))}</h3><p>{html_escape(str((item.get('content') or {}).get('output', '') if isinstance(item.get('content'), dict) else item.get('content', ''))[:420])}</p></article>" for item in assets)
+    token_suffix = f"?share={html_escape(str(share.get('token')))}" if share and share.get("token") else ""
+    html = f"""<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{title} · Event recap</title><meta name='description' content='{description}'><style>
+    :root{{--primary:{primary};--accent:{accent};--ink:{ink};--paper:#f6f5f1;--muted:#6d7181}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 Inter,ui-sans-serif,system-ui,sans-serif}}a{{color:inherit}}.wrap{{max-width:1160px;margin:auto;padding:0 28px}}nav{{display:flex;justify-content:space-between;align-items:center;padding:24px 0}}.brand{{font-weight:900;letter-spacing:-.04em;font-size:20px}}.brand i{{display:inline-block;width:14px;height:14px;border-radius:5px;background:var(--primary);margin-right:8px}}.navlinks{{display:flex;gap:18px;align-items:center;font-size:13px;font-weight:800}}.btn{{display:inline-flex;text-decoration:none;border-radius:999px;padding:12px 18px;font-weight:850;background:var(--ink);color:white}}.btn.accent{{background:var(--accent);color:var(--ink)}}.hero{{padding:72px 0 90px;display:grid;grid-template-columns:1.2fr .8fr;gap:46px;align-items:end}}.eyebrow{{color:var(--primary);text-transform:uppercase;letter-spacing:.14em;font-weight:900;font-size:12px}}h1{{font-size:clamp(48px,8vw,92px);line-height:.95;letter-spacing:-.08em;margin:14px 0 24px;max-width:780px}}h2{{font-size:clamp(30px,5vw,54px);line-height:1;letter-spacing:-.06em;margin:8px 0 16px}}h3{{line-height:1.1;letter-spacing:-.03em;margin:10px 0}}.hero p{{font-size:20px;color:var(--muted);max-width:650px}}.hero-card{{background:var(--ink);color:#fff;border-radius:28px;padding:28px;min-height:250px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:16px 16px 0 var(--primary)}}.hero-card strong{{font-size:30px;line-height:1.05;letter-spacing:-.05em}}.section{{padding:70px 0;border-top:1px solid #deddd7}}.section-head{{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:28px}}.section-head p{{color:var(--muted);max-width:430px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}}.session,.takeaway,.asset,.speaker{{background:white;border:1px solid #e2e1dc;border-radius:18px;padding:22px;box-shadow:0 8px 24px #1718270c}}.session span,.asset span,.speaker span{{color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}}.session p,.takeaway p,.asset p,.speaker p{{color:var(--muted);margin:8px 0}}.speaker{{display:flex;gap:14px}}.avatar{{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--primary);color:white;font-weight:900;flex:0 0 auto}}.topics{{display:flex;flex-wrap:wrap;gap:10px}}.topics span{{padding:10px 14px;border-radius:999px;background:#fff;border:1px solid #dfded8;font-weight:850}}.topics small{{color:var(--primary);margin-left:6px}}.cta{{background:var(--primary);color:white;border-radius:26px;padding:42px;display:flex;justify-content:space-between;gap:20px;align-items:center}}footer{{padding:34px 0 50px;color:var(--muted);font-size:13px}}@media(max-width:800px){{.hero{{grid-template-columns:1fr;padding:44px 0 64px}}.grid{{grid-template-columns:1fr}}.section-head,.cta{{display:block}}.section-head p{{margin-top:18px}}.navlinks a:not(.btn){{display:none}}}}
+    </style></head><body><div class='wrap'><nav><a class='brand' href='/'><i></i>smart event manager</a><div class='navlinks'><a href='#program'>Program</a><a href='#signals'>Signals</a><a class='btn accent' href='{attendee_url}{token_suffix}'>Join the event ↗</a></div></nav><main><section class='hero'><div><div class='eyebrow'>{venue} · {date_label}</div><h1>{title}</h1><p>{description}</p><a class='btn accent' href='{attendee_url}{token_suffix}'>Open attendee experience ↗</a></div><div class='hero-card'><span>Event content intelligence</span><strong>Ideas from the room, made useful everywhere.</strong><span>{len(sessions)} sessions · {len(topics)} topic signals · {len(assets)} published assets</span></div></section><section class='section' id='program'><div class='section-head'><div><div class='eyebrow'>The program</div><h2>What happened in the room.</h2></div><p>Explore the sessions and people behind the event conversation.</p></div><div class='grid'>{session_cards or '<article class="session"><h3>Program coming soon</h3><p>Session details will appear after the organizer publishes the event.</p></article>'}</div></section><section class='section' id='signals'><div class='section-head'><div><div class='eyebrow'>Event signals</div><h2>The ideas worth carrying forward.</h2></div><p>These takeaways and topics are drawn from the event knowledge layer.</p></div><div class='grid'>{takeaway_cards or '<article class="takeaway"><b>Signals will appear after capture.</b><p>The organizer is still building the event recap.</p></article>'}</div><div class='topics' style='margin-top:18px'>{topic_pills or '<span>Event topics coming soon</span>'}</div></section><section class='section'><div class='section-head'><div><div class='eyebrow'>People</div><h2>Voices shaping the conversation.</h2></div></div><div class='grid'>{speaker_cards or '<article class="speaker"><div><strong>Speakers coming soon</strong><p>Speaker profiles will be published with the program.</p></div></article>'}</div></section><section class='section'><div class='section-head'><div><div class='eyebrow'>Published content</div><h2>Keep exploring after the event.</h2></div></div><div class='grid'>{asset_cards or '<article class="asset"><span>Content studio</span><h3>More recaps are on the way.</h3><p>The event team will publish approved briefs, recaps, and speaker packs here.</p></article>'}</div></section><section class='section'><div class='cta'><div><div class='eyebrow' style='color:var(--accent)'>Continue the experience</div><h2>Stay close to the signal.</h2><p>Open the attendee portal for live captions, questions, takeaways, and translations.</p></div><a class='btn accent' href='{attendee_url}{token_suffix}'>Join the portal ↗</a></div></section></main><footer>Published with Smart Event Manager · {title}</footer></div></body></html>"""
+    return PlainTextResponse(html, media_type="text/html")
 
 
 @app.get("/attendee/{slug}", include_in_schema=False)

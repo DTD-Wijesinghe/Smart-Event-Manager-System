@@ -1527,6 +1527,13 @@ connect = function() {
 return `${head('Distribution layer', 'Share & connect', 'Give every audience a doorway into the event — on stage, in the app, or in the follow-up email.', '<button class="btn lime" data-action="copy-link">Copy attendee link</button>')}<div class="grid connect-grid"><section class="card share-card"><h3>Attendee portal</h3><p>One clean destination for live takeaways, session details, questions, and post-event content.</p><div class="link-row"><input readonly value="${link}" id="share-link"/><button class="btn ghost" data-action="copy-link">Copy</button></div><div class="qr-wrap"><img class="qr-image" src="${qr}" alt="QR code for attendee portal"/><small>Place this QR on badges, screens, print, and speaker slides.<br><br><strong>${d.share_links?.[0]?.clicks || 0} portal opens</strong> from the current link.</small></div><div class="actions-row"><a class="btn" href="${link}">Open attendee portal ↗</a><button class="btn ghost" data-action="open-screen">Big-screen mode</button></div></section><section class="card share-card"><h3>Connected workflow</h3><p>Keep the event ecosystem moving with simple handoffs.</p><div class="insight"><span class="kind">LIVE DATA</span><strong>Supabase-ready data layer</strong><p>Events, sessions, attendees, insights, and share links are modeled for a direct database connection.</p></div><div class="insight"><span class="kind">EMBED KIT</span><strong>Put it inside your own app</strong><p>Use the portal URL inside an iframe, WebView, QR badge, email CTA, or event app deep link.</p></div><div class="actions-row"><button class="btn ghost" data-view-link="transcript">Live transcript</button><button class="btn ghost" data-action="copy-embed">Copy embed code</button></div></section></div>`;
 };
 
+const baseConnectView = connect;
+connect = function connectWithMicrosite() {
+  const markup = baseConnectView();
+  const microsite = `/microsite/${encodeURIComponent(state.data?.event?.slug || 'event')}`;
+  return markup.replace('<button class="btn ghost" data-action="open-screen">Big-screen mode</button>', `<a class="btn ghost" href="${microsite}" target="_blank" rel="noreferrer">Preview recap site ↗</a><button class="btn ghost" data-action="open-screen">Big-screen mode</button>`);
+};
+
 const organizerViews = new Set(['overview', 'capture', 'files', 'sessions', 'attendees', 'content', 'analytics', 'connect', 'transcript', 'screen']);
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-session-share]');
