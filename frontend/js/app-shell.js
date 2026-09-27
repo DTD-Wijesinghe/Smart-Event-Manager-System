@@ -297,6 +297,19 @@ document.addEventListener('click', async event => {
     notify('Session deleted');
   } catch (error) { notify(error.message); }
 }, true);
+document.addEventListener('change', event => {
+  const select = event.target.closest('#poll-create-form select[name="poll_type"]');
+  if (!select) return;
+  const fields = [...document.querySelectorAll('#poll-create-form [data-poll-option-field]')];
+  const type = select.value;
+  const presets = type === 'yes_no' ? ['Yes', 'No', ''] : type === 'rating' ? ['1', '2', '3', '4', '5'] : ['', '', ''];
+  fields.forEach((field, index) => {
+    field.value = presets[index] || '';
+    field.disabled = type === 'open_text' || type === 'yes_no' || type === 'rating';
+    field.required = ['single', 'multiple'].includes(type) && index < 2;
+  });
+});
+
 document.addEventListener('submit', async event => {
   if (event.target.id !== 'session-edit-form') return;
   event.preventDefault();
@@ -691,7 +704,8 @@ document.addEventListener('submit', async event => {
   event.preventDefault();
   event.stopImmediatePropagation();
   const fields = Object.fromEntries(new FormData(form));
-  const options = [fields.option_one, fields.option_two, fields.option_three].map(value => String(value || '').trim()).filter(Boolean);
+  const options = fields.poll_type === 'yes_no' ? ['Yes', 'No'] : fields.poll_type === 'rating' ? ['1', '2', '3', '4', '5'] : [fields.option_one, fields.option_two, fields.option_three].map(value => String(value || '').trim()).filter(Boolean);
+  if (['single', 'multiple'].includes(fields.poll_type) && options.length < 2) return notify('Add at least two poll options');
   try {
     await api('/api/polls', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({question:fields.question, poll_type:fields.poll_type, options, session_id:activeSessionId()})});
     state.data = await api('/api/dashboard');
@@ -742,7 +756,7 @@ function mountLiveTranscriptSync() {
 }
 async function mountOrganizerAudience() {
   if (state.view !== 'attendees' || document.querySelector('.organizer-audience-panel')) return;
-  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card organizer-audience-panel"><div class="card-head"><div><h2>Audience questions</h2><p class="muted">Review incoming questions, pin the best ones, and move them through the event team workflow.</p></div><span class="badge">Moderator queue</span></div><div id="organizer-question-list" class="insight-list"><span class="muted">Loading questions…</span></div><div class="organizer-divider"></div><div class="card-head"><div><h2>Live poll studio</h2><p class="muted">Publish a focused question to the attendee portal, then open or close it as the conversation moves.</p></div><span class="badge">Audience pulse</span></div><form id="poll-create-form" class="capture-form"><label>Question<input name="question" required minlength="3" placeholder="What should the room explore next?"></label><div class="capture-form-row"><label>Response type<select name="poll_type"><option value="single">Single choice</option><option value="multiple">Multiple choice</option><option value="yes_no">Yes / No</option></select></label><label>Option 1<input name="option_one" required placeholder="First option"></label><label>Option 2<input name="option_two" required placeholder="Second option"></label><label>Option 3<input name="option_three" placeholder="Optional third option"></label><button class="btn lime">Publish poll ↗</button></div></form><div id="organizer-poll-list" class="insight-list"><span class="muted">Loading polls…</span></div></section>');
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card organizer-audience-panel"><div class="card-head"><div><h2>Audience questions</h2><p class="muted">Review incoming questions, pin the best ones, and move them through the event team workflow.</p></div><span class="badge">Moderator queue</span></div><div id="organizer-question-list" class="insight-list"><span class="muted">Loading questions…</span></div><div class="organizer-divider"></div><div class="card-head"><div><h2>Live poll studio</h2><p class="muted">Publish a focused question to the attendee portal, then open or close it as the conversation moves.</p></div><span class="badge">Audience pulse</span></div><form id="poll-create-form" class="capture-form"><label>Question<input name="question" required minlength="3" placeholder="What should the room explore next?"></label><div class="capture-form-row"><label>Response type<select name="poll_type"><option value="single">Single choice</option><option value="multiple">Multiple choice</option><option value="yes_no">Yes / No</option><option value="rating">1–5 rating</option><option value="open_text">Open text</option></select></label><label>Option 1<input name="option_one" data-poll-option-field placeholder="First option"></label><label>Option 2<input name="option_two" data-poll-option-field placeholder="Second option"></label><label>Option 3<input name="option_three" data-poll-option-field placeholder="Optional third option"></label><button class="btn lime">Publish poll ↗</button></div></form><div id="organizer-poll-list" class="insight-list"><span class="muted">Loading polls…</span></div></section>');
   try {
     const [questions, polls] = await Promise.all([api(`/api/questions?session_id=${encodeURIComponent(activeSessionId())}`), api(`/api/polls?session_id=${encodeURIComponent(activeSessionId())}`)]);
     const list = document.querySelector('#organizer-question-list');
