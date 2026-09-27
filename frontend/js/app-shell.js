@@ -199,10 +199,17 @@ function mountAttendeeSummary() {
 }
 function mountTranscriptActions() {
   if (state.view !== 'transcript' || document.querySelector('[data-action="export-transcript"]')) return;
-  document.querySelector('.transcript-view .actions')?.insertAdjacentHTML('afterbegin', '<button class="btn ghost" data-action="export-transcript">↓ Download TXT</button>');
+  document.querySelector('.transcript-view .actions')?.insertAdjacentHTML('afterbegin', '<button class="btn ghost" data-action="export-transcript" data-format="txt">↓ TXT</button><button class="btn ghost" data-action="export-transcript" data-format="srt">↓ SRT</button><button class="btn ghost" data-action="export-transcript" data-format="vtt">↓ VTT</button>');
+}
+function mountLiveMetrics() {
+  if (state.view !== 'overview' || !state.data?.analytics) return;
+  const cards = [...document.querySelectorAll('.kpis .kpi strong')];
+  const stats = state.data.analytics;
+  const live = state.data.sessions.find(session => session.status === 'live');
+  [stats.attendees, live?.attendance || 0, stats.transcripts + stats.questions, stats.average_session_rating ? `${Math.round(stats.average_session_rating * 20)}%` : '—'].forEach((value, index) => { if (cards[index]) cards[index].textContent = typeof value === 'number' ? money(value) : value; });
 }
 const baseRender = render;
-render = function wrappedRender() { baseRender(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
+render = function wrappedRender() { baseRender(); mountLiveMetrics(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
@@ -376,11 +383,14 @@ document.addEventListener('click', async event => {
   if (action === 'export-transcript') {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const rows = state.data?.transcripts || [];
-    if (!rows.length) return notify('There is no transcript to export yet');
-    const text = rows.slice().reverse().map(row => `[${row.created_at || 'LIVE'}] ${row.speaker || 'Live speaker'}: ${row.text || ''}`).join('\n');
-    const url = URL.createObjectURL(new Blob([text], {type:'text/plain;charset=utf-8'}));
-    const link = document.createElement('a'); link.href = url; link.download = 'smart-event-transcript.txt'; link.click(); URL.revokeObjectURL(url); notify('Transcript TXT downloaded');
+    const format = event.target.closest('[data-format]')?.dataset.format || 'txt';
+    try {
+      const response = await fetch(`/api/transcripts/export?format=${format}`);
+      if (!response.ok) throw new Error('Transcript export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = `smart-event-transcript.${format}`; link.click(); URL.revokeObjectURL(url); notify(`Transcript ${format.toUpperCase()} downloaded`);
+    } catch (error) { notify(error.message); }
   }
   if (action === 'copy-embed') {
     event.preventDefault();

@@ -73,7 +73,8 @@ def get_share_link(token: str) -> dict | None:
 
 def dashboard() -> dict:
     events, sessions, attendees, insights, share_links, transcripts = [list_items(name) for name in ("events", "sessions", "attendees", "insights", "share_links", "transcripts")]
-    return {"event": events[0] if events else None, "sessions": sessions, "attendees": attendees, "insights": insights, "share_links": share_links, "transcripts": transcripts, "mode": storage_mode()}
+    event_id = events[0].get("id", "evt-001") if events else "evt-001"
+    return {"event": events[0] if events else None, "sessions": sessions, "attendees": attendees, "insights": insights, "share_links": share_links, "transcripts": transcripts, "analytics": analytics(event_id), "mode": storage_mode()}
 
 
 def _remote_insert(table: str, item: dict) -> dict | None:
