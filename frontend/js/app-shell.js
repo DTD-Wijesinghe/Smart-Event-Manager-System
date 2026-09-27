@@ -1,6 +1,7 @@
 const state = { view: 'landing', data: null, authenticated: false, authMode: 'login', resetToken: '', currentSessionId: '', assets: [], publicShareToken: '' };
 window.selectAuthMode = kind => { state.authMode = kind === 'register' ? 'register' : 'login'; state.view = 'auth'; render(); };
 let transcriptRefreshTimer = null;
+let audienceRefreshTimer = null;
 const app = document.querySelector('#app');
 const toast = document.querySelector('#toast');
 
@@ -1135,6 +1136,23 @@ async function mountAudienceData() {
     if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => { const options = (poll.options || []).map(option => `<label class="poll-option"><input type="${poll.poll_type === 'multiple' ? 'checkbox' : 'radio'}" name="${poll.poll_type === 'multiple' ? 'option_ids' : 'option_id'}" value="${esc(option.id)}" ${poll.poll_type === 'multiple' ? '' : 'required'}> ${esc(option.label)}</label>`).join(''); const response = poll.is_open ? `<form class="poll-response-form" data-poll-id="${esc(poll.id)}">${options || '<input name="answer_text" placeholder="Your response" required>'}<button class="btn lime">Respond ↗</button></form>` : '<span class="muted">Poll closed · results are retained by the event team.</span>'; const results = poll.results?.total_responses ? `<small class="muted">${poll.results.total_responses} response${poll.results.total_responses === 1 ? '' : 's'} · ${(poll.options || []).map(option => `${esc(option.label)}: ${option.responses || 0}`).join(' · ')}</small>` : ''; return `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Closed poll'} · ${esc(poll.poll_type || 'single')}</span><strong>${esc(poll.question)}</strong>${response}${results}</div>`; }).join('') : '';
   } catch (error) { const feed = document.querySelector('#question-feed'); if (feed) feed.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+async function refreshAudienceFeed() {
+  if (state.view !== 'attendee' || !document.querySelector('.audience-data-panel')) return;
+  try {
+    const sessionId = encodeURIComponent(activeSessionId());
+    const [questions, polls] = await Promise.all([api(attendeeApi(`/api/questions?session_id=${sessionId}`)), api(attendeeApi(`/api/polls?session_id=${sessionId}`))]);
+    const questionFeed = document.querySelector('#question-feed');
+    if (questionFeed) questionFeed.innerHTML = questions.length ? questions.map(question => `<div class="insight"><span class="kind">${esc(question.status || 'pending')} · ${question.votes || 0} votes</span><p>${esc(question.body)}</p><button class="btn ghost" data-question-vote="${esc(question.id)}">Upvote</button></div>`).join('') : '<span class="muted">No audience questions yet.</span>';
+    const pollFeed = document.querySelector('#poll-feed');
+    if (pollFeed) pollFeed.innerHTML = polls.length ? polls.map(poll => { const options = (poll.options || []).map(option => `<label class="poll-option"><input type="${poll.poll_type === 'multiple' ? 'checkbox' : 'radio'}" name="${poll.poll_type === 'multiple' ? 'option_ids' : 'option_id'}" value="${esc(option.id)}" ${poll.poll_type === 'multiple' ? '' : 'required'}> ${esc(option.label)}</label>`).join(''); const response = poll.is_open ? `<form class="poll-response-form" data-poll-id="${esc(poll.id)}">${options || '<input name="answer_text" placeholder="Your response" required>'}<button class="btn lime">Respond ↗</button></form>` : '<span class="muted">Poll closed · results are retained by the event team.</span>'; const results = poll.results?.total_responses ? `<small class="muted">${poll.results.total_responses} response${poll.results.total_responses === 1 ? '' : 's'} · ${(poll.options || []).map(option => `${esc(option.label)}: ${option.responses || 0}`).join(' · ')}</small>` : ''; return `<div class="insight"><span class="kind">${poll.is_open ? 'Live poll' : 'Closed poll'} · ${esc(poll.poll_type || 'single')}</span><strong>${esc(poll.question)}</strong>${response}${results}</div>`; }).join('') : '';
+  } catch (_) { /* Keep the last audience state visible during brief network interruptions. */ }
+}
+function mountAudienceRealtime() {
+  clearInterval(audienceRefreshTimer);
+  audienceRefreshTimer = null;
+  if (state.view !== 'attendee' || !document.querySelector('.audience-data-panel')) return;
+  audienceRefreshTimer = setInterval(refreshAudienceFeed, 5000);
+}
 function mountAttendeeTabs() {
   if (state.view !== 'attendee' || document.querySelector('.attendee-tabs')) return;
   document.querySelector('.attendee-nav')?.insertAdjacentHTML('afterend', '<nav class="attendee-tabs" aria-label="Attendee portal sections"><button class="active" data-attendee-anchor="attendee-hero">Live</button><button data-attendee-anchor="attendee-takeaways-panel">Takeaways</button><button data-attendee-anchor="attendee-summary-panel">Summary</button><button data-attendee-anchor="topic-cloud-panel">Idea cloud</button><button data-attendee-anchor="audience-data-panel">Q&A + Polls</button><button data-attendee-anchor="attendee-interactions">Feedback</button></nav>');
@@ -1232,7 +1250,7 @@ document.addEventListener('submit', async event => {
   } catch (error) { notify(error.message); }
 }, true);
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
