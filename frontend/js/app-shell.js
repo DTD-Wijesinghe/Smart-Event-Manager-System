@@ -281,10 +281,14 @@ async function teamModal() {
   document.querySelector('.modal-backdrop')?.remove();
   const organizationId = state.data?.event?.organization_id || 'org-demo';
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal team-modal"><div class="eyebrow">Workspace access</div><h2>Team & roles</h2><p>Invite collaborators and keep event operations scoped to the right role.</p><div id="team-panel-content"><span class="muted">Loading workspace members…</span></div><div class="organizer-divider"></div><form id="invite-form" class="form-grid"><label>Invite by email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="event_organizer">Event organizer</option><option value="content_editor">Content editor</option><option value="speaker">Speaker</option><option value="attendee">Attendee</option><option value="organization_admin">Organization admin</option></select></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button><button class="btn lime">Send invitation ↗</button></div></form></div></div>`);
+  document.querySelector('.team-modal')?.insertAdjacentHTML('afterbegin', '<form id="organization-form" class="form-grid"><div class="eyebrow">Organization settings</div><div class="capture-form-row"><label>Organization name<input name="name" required></label><label>Website<input name="website" type="url" placeholder="https://example.com"></label></div><div class="capture-form-row"><label>Industry<input name="industry" placeholder="Events and experiences"></label><label>Timezone<input name="timezone" placeholder="UTC"></label><label>Preferred language<input name="preferred_language" value="en" placeholder="en"></label></div><label>Logo URL<input name="logo_url" type="url" placeholder="https://…"></label><div class="modal-actions"><button class="btn ghost">Save organization settings</button></div></form>');
   try {
     const team = await api(`/api/team?organization_id=${encodeURIComponent(organizationId)}`);
     const panel = document.querySelector('#team-panel-content');
     if (panel) panel.innerHTML = teamPanelMarkup(team);
+    const organizations = await api('/api/organizations');
+    const organization = organizations.find(item => item.id === organizationId) || organizations[0];
+    if (organization) { const form = document.querySelector('#organization-form'); if (form) Object.entries(organization).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value || ''; }); }
   } catch (error) { const panel = document.querySelector('#team-panel-content'); if (panel) panel.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 document.addEventListener('click', async event => {
@@ -775,6 +779,17 @@ document.addEventListener('submit', async event => {
     render();
     notify(fields.mode === 'create' ? 'New event workspace created' : 'Event details saved');
   } catch (error) { notify(error.message); }
+}, true);
+
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('#organization-form');
+  if (!form) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const fields = Object.fromEntries(new FormData(form));
+  const organizationId = state.data?.event?.organization_id || 'org-demo';
+  try { await api(`/api/organizations/${encodeURIComponent(organizationId)}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(fields)}); notify('Organization settings saved'); }
+  catch (error) { notify(error.message); }
 }, true);
 
 document.addEventListener('submit', async event => {
