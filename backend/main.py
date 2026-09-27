@@ -1267,8 +1267,34 @@ def generate_report(request: ReportGenerateRequest) -> dict:
         content["takeaways"] = snapshot.get("takeaways", [])
     if "evidence" in sections:
         content["evidence"] = [evidence for session in sessions for evidence in session.get("evidence", [])][:30]
+    evidence_lines = []
+    for session in sessions:
+        evidence_lines.append(f"Session: {session.get('title', 'Untitled')} | Track: {session.get('track') or 'Unassigned'}")
+        evidence_lines.extend(f"Evidence: {row.get('snippet', '')}" for row in session.get('evidence', []))
+    evidence_lines.extend(f"Takeaway: {row.get('title', '')} — {row.get('body', '')}" for row in snapshot.get('takeaways', []) if not allowed or row.get('session_id') in allowed)
+    report_source = "\n".join(line for line in evidence_lines if line.strip())[:120000]
+    if report_source:
+        asset_type = {
+            "executive_brief": "executive_brief",
+            "full_event_summary": "attendee_recap",
+            "sponsor_report": "sponsor_update",
+            "industry_trends": "blog_article",
+            "speaker_performance": "speaker_pack",
+            "engagement_report": "executive_brief",
+            "topic_analysis": "executive_brief",
+            "attendee_feedback": "attendee_recap",
+        }.get(request.report_type, "executive_brief")
+        try:
+            generated = generate_content_ai(report_source, request.targetLanguage, asset_type)
+            content["generated_output"] = generated.get("output", "")
+            content["generation_mode"] = "ai"
+            content["model"] = generated.get("model", "")
+        except Exception:
+            content["generated_output"] = "This report is grounded in the selected event evidence. Review the linked themes, sessions, takeaways, and source passages before sharing."
+            content["generation_mode"] = "fallback"
+            content["model"] = "local-fallback"
     report = create_report({"event_id": request.event_id, "source_session_ids": [row.get("session_id") for row in sessions], "report_type": request.report_type, "title": request.title, "format": request.format, "content": content})
-    return {"mode": snapshot.get("mode", "grounded-local"), "report": report}
+    return {"mode": content.get("generation_mode", snapshot.get("mode", "grounded-local")), "model": content.get("model"), "report": report}
 
 
 @app.get(f"{settings.api_prefix}/reports/{{report_id}}/export", response_model=None)
@@ -1285,6 +1311,7 @@ def export_report(report_id: str, format: str = "markdown"):
     if content.get("themes"): lines.extend(["## Themes", *[f"- {row.get('label')}: {row.get('count')} signals" for row in content["themes"]], ""])
     if content.get("takeaways"): lines.extend(["## Takeaways", *[f"- {row.get('title')}: {row.get('body')}" for row in content["takeaways"]], ""])
     if content.get("evidence"): lines.extend(["## Evidence", *[f"- {row.get('snippet')}" for row in content["evidence"]], ""])
+    if content.get("generated_output"): lines.extend(["## AI-generated report", str(content["generated_output"]), ""])
     return PlainTextResponse("\n".join(lines), media_type="text/markdown", headers={"Content-Disposition": f"attachment; filename={report_id}.md"})
 
 
