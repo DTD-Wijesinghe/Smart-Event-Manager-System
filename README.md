@@ -124,7 +124,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/reports/{report_id}/export?format=markdown|json` - download a report
 - `POST /api/content/generate` — generate and save a content asset in one request
 - `POST /api/ai/summarize`
-- `POST /api/ai/translate`
+- `POST /api/ai/translate` — organizer-authenticated or valid attendee share-token translation
 - `POST /api/transcription/batch`
 - `POST /api/files/upload` — validate and queue an audio, video, TXT, SRT, or VTT upload for background processing
 - `GET /api/files?event_id=...&session_id=...`

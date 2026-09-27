@@ -109,6 +109,7 @@ class SessionSummaryRequest(BaseModel):
 class TranslateRequest(BaseModel):
     text: str
     targetLanguage: str = "English"
+    session_id: str | None = None
 
 
 class TranslationPersistRequest(BaseModel):
@@ -1385,7 +1386,8 @@ def create_summary(request: SummaryRequest) -> dict:
 
 
 @app.post(f"{settings.api_prefix}/ai/translate")
-def create_translation(request: TranslateRequest) -> dict:
+def create_translation(request: TranslateRequest, share_token: str | None = None, authorization: str | None = Header(default=None)) -> dict:
+    _require_portal_access(authorization, share_token, session_id=request.session_id)
     if not request.text.strip(): raise HTTPException(status_code=400, detail="Transcript text is required")
     try:
         return translate(request.text, request.targetLanguage)
