@@ -1369,14 +1369,32 @@ def capture_text(request: CaptureRequest) -> dict:
 
 @app.websocket(f"{settings.api_prefix}/ws/capture/{{session_id}}")
 async def capture_socket(websocket: WebSocket, session_id: str) -> None:
-    """Accept authenticated live text chunks from a venue bridge or meeting integration."""
+    """Accept authenticated live text or binary audio chunks from a venue bridge."""
     await websocket.accept()
     if not await _websocket_authenticated(websocket):
         await websocket.close(code=1008, reason="Organizer authentication is required")
         return
     try:
         while True:
-            payload = await websocket.receive_json()
+            frame = await websocket.receive()
+            if frame.get("type") == "websocket.disconnect":
+                return
+            audio = frame.get("bytes")
+            payload: dict[str, Any] = {}
+            if audio:
+                try:
+                    result = transcribe(audio, "audio/webm", [])
+                    payload = {"text": result.get("transcript", ""), "model": result.get("model", "live-audio"), "language": result.get("language", "auto")}
+                except Exception as exc:
+                    logger.exception("Live audio transcription failed: %s", exc)
+                    await websocket.send_json({"type": "error", "detail": "Live audio transcription failed. Check the provider configuration and retry."})
+                    continue
+            else:
+                try:
+                    payload = json.loads(frame.get("text") or "{}")
+                except json.JSONDecodeError:
+                    await websocket.send_json({"type": "error", "detail": "Live capture frames must be JSON text or audio bytes"})
+                    continue
             if payload.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
