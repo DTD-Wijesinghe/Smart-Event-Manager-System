@@ -22,8 +22,8 @@ class Settings:
     credentials_json = _credentials_value if _credentials_value.lstrip().startswith("{") else ""
     credentials_path = str((ROOT_DIR / _credentials_value).resolve()) if _credentials_value and not credentials_json and not Path(_credentials_value).is_absolute() else (_credentials_value if not credentials_json else "")
     text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
-    batch_model = os.getenv("GEMINI_BATCH_MODEL", "gemini-3.5-transcribe")
-    live_model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.5-transcribe-live")
+    batch_model = os.getenv("GEMINI_BATCH_MODEL", "gemini-3.5-transcribe-preview")
+    live_model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.5-transcribe-preview")
     supabase_url = os.getenv("SUPABASE_URL", "")
     supabase_anon_key = os.getenv("SUPABASE_ANON_KEY", "")
     supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")

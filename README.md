@@ -60,8 +60,8 @@ VERTEX_SERVICE_ACCOUNT_JSON=./service-account.json
 GCP_PROJECT=your-google-cloud-project
 GCP_LOCATION=global
 GEMINI_TEXT_MODEL=gemini-2.5-flash
-GEMINI_BATCH_MODEL=gemini-3.5-transcribe
-GEMINI_LIVE_MODEL=gemini-3.5-transcribe-live
+GEMINI_BATCH_MODEL=gemini-3.5-transcribe-preview
+GEMINI_LIVE_MODEL=gemini-3.5-transcribe-preview
 ```
 
 Install the packages from `backend/requirements.txt`; the FastAPI app loads `.env` automatically.
