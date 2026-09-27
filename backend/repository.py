@@ -633,6 +633,21 @@ def update_team_member(member_id: str, role: str | None = None, status: str | No
     return member
 
 
+def remove_team_member(member_id: str) -> dict:
+    member = next((item for item in list_items("organization_members") if item.get("id") == member_id or item.get("user_id") == member_id), None)
+    if not member:
+        raise KeyError("Team member not found")
+    if str(member.get("role")) == "organization_admin" and sum(1 for item in list_items("organization_members") if item.get("organization_id") == member.get("organization_id") and item.get("role") == "organization_admin" and item.get("status") == "active") <= 1:
+        raise ValueError("The last organization admin cannot be removed")
+    if str(member.get("id", "")).startswith(("user-demo-", "member-")) or str(member_id).startswith(("user-demo-", "member-")):
+        demo_store["organization_members"][:] = [item for item in demo_store["organization_members"] if item is not member]
+    elif storage_mode() == "supabase" and member.get("organization_id") and member.get("user_id"):
+        response = httpx.delete(f"{settings.supabase_url}/rest/v1/organization_members?organization_id=eq.{member['organization_id']}&user_id=eq.{member['user_id']}", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+    return {"deleted": True, "member": member}
+
+
 def delete_event(event_id: str) -> dict:
     event = next((item for item in list_items("events") if item.get("id") == event_id), None)
     if not event:

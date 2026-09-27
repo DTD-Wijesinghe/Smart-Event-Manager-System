@@ -270,6 +270,11 @@ function teamPanelMarkup(team) {
   const invitations = (team.invitations || []).map(inv => `<article class="insight"><span class="kind">INVITED · ${esc(inv.role || 'event organizer')}</span><strong>${esc(inv.email)}</strong><small class="muted">Invitation pending</small></article>`).join('');
   return `<div id="team-member-list" class="insight-list">${members}${invitations}</div>`;
 }
+teamPanelMarkup = function enhancedTeamPanelMarkup(team) {
+  const members = (team.members || []).map(member => `<article class="insight team-member"><div><span class="kind">${esc(member.status || 'active')}</span><strong>${esc(member.full_name || member.email || member.user_id || 'Workspace member')}</strong><small class="muted">${esc(member.email || '')}</small></div><div class="actions-row compact-actions"><select data-team-role="${esc(member.id || member.user_id || '')}" aria-label="Role for ${esc(member.full_name || member.email || 'member')}">${['organization_admin','event_organizer','content_editor','speaker','attendee'].map(role => `<option value="${role}" ${member.role === role ? 'selected' : ''}>${role.replaceAll('_', ' ')}</option>`).join('')}</select><button type="button" class="btn ghost" data-action="remove-team-member" data-team-member="${esc(member.id || member.user_id || '')}">Remove</button></div></article>`).join('') || '<span class="muted">No active members yet.</span>';
+  const invitations = (team.invitations || []).map(inv => `<article class="insight"><span class="kind">INVITED · ${esc(inv.role || 'event organizer')}</span><strong>${esc(inv.email)}</strong><small class="muted">Invitation pending</small></article>`).join('');
+  return `<div id="team-member-list" class="insight-list">${members}${invitations}</div>`;
+};
 async function teamModal() {
   document.querySelector('.modal-backdrop')?.remove();
   const organizationId = state.data?.event?.organization_id || 'org-demo';
@@ -508,6 +513,16 @@ document.addEventListener('change', async event => {
     render();
     notify('Viewing the selected session');
   } catch (error) { notify(error.message); }
+}, true);
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-action="remove-team-member"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (!window.confirm('Remove this team member from the organization?')) return;
+  try { await api(`/api/team/members/${encodeURIComponent(button.dataset.teamMember)}`, {method:'DELETE'}); await teamModal(); notify('Team member removed'); }
+  catch (error) { notify(error.message); }
 }, true);
 function showMatchResults(matches, attendee) {
   document.querySelector('.match-results')?.remove();
