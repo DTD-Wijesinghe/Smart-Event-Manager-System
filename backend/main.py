@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, remove_team_member, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_file, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
+from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_attendee, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_attendee_preferences, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, remove_team_member, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_file, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_attendee_preferences, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
 from .storage import upload_bytes as upload_storage_bytes, delete_object as delete_storage_object, signed_url as create_storage_signed_url
 
@@ -175,6 +175,18 @@ class FeedbackRequest(BaseModel):
     content_rating: int | None = None
     session_rating: int | None = None
     comment: str = ""
+
+
+class AttendeePreferenceRequest(BaseModel):
+    attendee_id: str | None = None
+    event_id: str
+    share_token: str | None = None
+    full_name: str = "Anonymous attendee"
+    email: str = ""
+    role: str = ""
+    industry: str = ""
+    interests: list[str] = []
+    language: str = "en"
 
 
 class ContentGenerateRequest(BaseModel):
@@ -339,6 +351,7 @@ async def protect_api(request, call_next):
       or (relative == "takeaways" and method == "GET")
       or (relative == "search" and method == "GET")
       or (relative == "ai/translate" and method == "POST")
+      or (relative == "attendee/preferences" and method in {"GET", "POST"})
     )
     if not path.startswith(f"{settings.api_prefix}/") or path in public or attendee_public:
         return await call_next(request)
@@ -420,7 +433,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-secure-files", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-attendee-personalization", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1181,6 +1194,39 @@ def add_feedback(request: FeedbackRequest, share_token: str | None = None, autho
     for rating in (request.speaker_rating, request.content_rating, request.session_rating):
         if rating is not None and not 1 <= rating <= 5: raise HTTPException(status_code=400, detail="Ratings must be between 1 and 5")
     return create_feedback(request.model_dump())
+
+
+def _attendee_recommendations(event_id: str, preferences: dict) -> dict:
+    interests = {str(item).strip().lower() for item in (preferences.get("interests") or []) if str(item).strip()}
+    profile_terms = interests | {str(preferences.get("role") or "").lower(), str(preferences.get("industry") or "").lower()}
+    sessions = [row for row in list_items("sessions") if row.get("event_id") == event_id]
+    ranked = []
+    for session in sessions:
+        searchable = " ".join(str(session.get(key) or "") for key in ("title", "track", "room", "speaker", "summary", "tags")).lower()
+        matched = sorted(term for term in profile_terms if term and len(term) > 2 and term in searchable)
+        ranked.append({"session": session, "score": len(matched), "matched_interests": matched})
+    ranked.sort(key=lambda item: (item["score"], item["session"].get("starts_at") or ""), reverse=True)
+    return {"preferences": preferences, "recommendations": ranked[:6]}
+
+
+@app.post(f"{settings.api_prefix}/attendee/preferences", status_code=201)
+def save_attendee_preferences(request: AttendeePreferenceRequest) -> dict:
+    _require_portal_access(None, request.share_token, event_id=request.event_id)
+    attendee_id = request.attendee_id
+    if not attendee_id:
+        attendee = create_attendee({"event_id": request.event_id, "full_name": request.full_name, "email": request.email})
+        attendee_id = attendee["id"]
+    preferences = upsert_attendee_preferences({**request.model_dump(), "attendee_id": attendee_id})
+    return {"attendee_id": attendee_id, **_attendee_recommendations(request.event_id, preferences)}
+
+
+@app.get(f"{settings.api_prefix}/attendee/preferences")
+def read_attendee_preferences(event_id: str, attendee_id: str, share_token: str | None = None) -> dict:
+    _require_portal_access(None, share_token, event_id=event_id)
+    preferences = get_attendee_preferences(attendee_id)
+    if not preferences:
+        raise HTTPException(status_code=404, detail="Attendee preferences not found")
+    return {"attendee_id": attendee_id, **_attendee_recommendations(event_id, preferences)}
 
 
 @app.get(f"{settings.api_prefix}/analytics")

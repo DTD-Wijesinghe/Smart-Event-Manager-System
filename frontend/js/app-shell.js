@@ -1016,6 +1016,7 @@ function mountAttendeeSessionPicker() {
 }
 function mountAttendeeInteractions() {
   if (document.querySelector('.attendee-interactions')) return;
+  mountAttendeePersonalization();
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-interactions"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Ask the room</h2><p>Share a question with the organizer. You can stay anonymous.</p><form id="question-form"><textarea name="body" rows="3" required placeholder="What would you like the speaker to answer?"></textarea><label class="check-row"><input type="checkbox" name="anonymous" checked> Ask anonymously</label><button class="btn lime">Submit question ↗</button></form><div id="question-status" class="muted"></div></div><div class="attendee-interaction-card"><div class="eyebrow">Close the loop</div><h2>Rate this session</h2><p>Your feedback helps the event team improve the next room.</p><form id="feedback-form"><div class="rating-row"><label>Speaker<select name="speaker_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label><label>Content<select name="content_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label><label>Session<select name="session_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label></div><textarea name="comment" rows="3" placeholder="Optional feedback"></textarea><button class="btn purple">Send feedback ↗</button></form></div></section>`);
 }
 function mountTranscriptData() {
@@ -1153,6 +1154,24 @@ async function mountAttendeeTakeaways() {
     const list = document.querySelector('#attendee-takeaway-list');
     if (list) list.innerHTML = rows.length ? rows.map(row => `<article class="insight"><span class="kind">${row.confidence ? `${Math.round(row.confidence * 100)}% confidence` : 'TAKEAWAY'} · ${(row.evidence || []).length} sources</span><strong>${esc(row.title || 'Event takeaway')}</strong><p>${esc(row.body || '')}</p></article>`).join('') : '<span class="muted">Takeaways will appear after the first captured signals.</span>';
   } catch (error) { const list = document.querySelector('#attendee-takeaway-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
+async function mountAttendeePersonalization() {
+  if (state.view !== 'attendee' || document.querySelector('.attendee-personalization-panel')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions attendee-personalization-panel"><div class="attendee-interaction-card"><div class="eyebrow">Make it relevant</div><h2>Personalize your event feed</h2><p>Choose a few interests and we will surface the sessions most relevant to you. Your preferences stay attached to this event only.</p><form id="attendee-preferences-form" class="form-grid"><div class="capture-form-row"><label>Role<input name="role" placeholder="e.g. Product leader"></label><label>Industry<input name="industry" placeholder="e.g. Technology"></label></div><label>Interests<input name="interests" placeholder="AI, sustainability, leadership"></label><label>Preferred language<input name="language" value="en" placeholder="en"></label><button class="btn lime">Save my preferences ↗</button></form><div id="personalized-recommendations" class="insight-list"></div></div></section>');
+  const attendeeId = localStorage.getItem('smart-event-attendee-id');
+  if (!attendeeId) return;
+  try {
+    const result = await api(`/api/attendee/preferences?event_id=${encodeURIComponent(state.data?.event?.id || '')}&attendee_id=${encodeURIComponent(attendeeId)}&share_token=${encodeURIComponent(state.publicShareToken || '')}`);
+    const form = document.querySelector('#attendee-preferences-form');
+    const preferences = result.preferences || {};
+    if (form) { form.elements.role.value = preferences.role || ''; form.elements.industry.value = preferences.industry || ''; form.elements.interests.value = (preferences.interests || []).join(', '); form.elements.language.value = preferences.language || 'en'; }
+    renderPersonalizedRecommendations(result.recommendations || []);
+  } catch (_) { /* First-time attendees simply see the empty preference form. */ }
+}
+function renderPersonalizedRecommendations(rows) {
+  const target = document.querySelector('#personalized-recommendations');
+  if (!target) return;
+  target.innerHTML = rows.length ? `<div class="eyebrow">Recommended sessions</div>${rows.map(row => `<article class="insight"><span class="kind">${row.score ? `${row.score} matched signal${row.score === 1 ? '' : 's'}` : 'Explore next'}</span><strong>${esc(row.session?.title || 'Event session')}</strong><p>${esc(row.session?.summary || row.session?.track || 'Session from this event')}</p>${row.matched_interests?.length ? `<small class="muted">Matches: ${esc(row.matched_interests.join(', '))}</small>` : ''}</article>`).join('')}` : '<span class="muted">Save your interests to see recommended sessions.</span>';
 }
 async function mountAudienceData() {
   if (state.view !== 'attendee' || document.querySelector('.audience-data-panel')) return;
@@ -1318,6 +1337,18 @@ document.addEventListener('submit', async e => {
     const value = name => form.get(name) ? Number(form.get(name)) : null;
     try { await api(attendeeApi('/api/feedback'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:activeSessionId(), speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('session_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
     catch (error) { notify(error.message); }
+  }
+  if (e.target.id === 'attendee-preferences-form') {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const attendeeId = localStorage.getItem('smart-event-attendee-id') || '';
+    const interests = String(form.get('interests') || '').split(',').map(item => item.trim()).filter(Boolean);
+    try {
+      const result = await api('/api/attendee/preferences', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({attendee_id: attendeeId || null, event_id: state.data?.event?.id, share_token: state.publicShareToken || '', full_name: 'Anonymous attendee', role: form.get('role'), industry: form.get('industry'), interests, language: form.get('language') || 'en'})});
+      localStorage.setItem('smart-event-attendee-id', result.attendee_id);
+      renderPersonalizedRecommendations(result.recommendations || []);
+      notify('Your event feed is personalized');
+    } catch (error) { notify(error.message); }
   }
 }, true);
 

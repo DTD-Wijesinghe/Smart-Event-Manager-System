@@ -1,4 +1,5 @@
 import httpx
+import uuid
 import re
 from .config import settings
 from .demo_store import demo_store, utc_now
@@ -136,6 +137,51 @@ def set_attendee_checkin(attendee_id: str, checked_in: bool) -> dict:
             if rows:
                 return _normalize_row("attendees", rows[0])
     return attendee
+
+
+def create_attendee(payload: dict) -> dict:
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise ValueError("An event is required")
+    item = {"id": f"att-{len(demo_store['attendees']) + 1:03d}", "event_id": event_id, "anonymous_token": payload.get("anonymous_token") or f"attendee-{uuid.uuid4().hex}", "full_name": str(payload.get("full_name") or "Anonymous attendee").strip()[:160], "email": str(payload.get("email") or "").strip()[:254], "checked_in": False, "created_at": utc_now()}
+    if storage_mode() == "supabase" and not str(event_id).startswith("evt-"):
+        remote = {key: value for key, value in item.items() if key != "id"}
+        response = httpx.post(f"{settings.supabase_url}/rest/v1/attendees", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=remote, timeout=20)
+        response.raise_for_status()
+        rows = response.json()
+        if rows:
+            return rows[0]
+    demo_store["attendees"].append(item)
+    return item
+
+
+def get_attendee_preferences(attendee_id: str) -> dict | None:
+    if storage_mode() == "supabase" and not str(attendee_id).startswith("att-"):
+        response = httpx.get(f"{settings.supabase_url}/rest/v1/attendee_preferences?attendee_id=eq.{attendee_id}&select=*", headers=_headers(), timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            return rows[0] if rows else None
+    return next((row for row in demo_store["attendee_preferences"] if row.get("attendee_id") == attendee_id), None)
+
+
+def upsert_attendee_preferences(payload: dict) -> dict:
+    attendee_id = payload.get("attendee_id")
+    if not attendee_id:
+        raise ValueError("An attendee is required")
+    interests = [str(value).strip() for value in (payload.get("interests") or []) if str(value).strip()][:20]
+    item = {"attendee_id": attendee_id, "role": str(payload.get("role") or "").strip()[:120], "industry": str(payload.get("industry") or "").strip()[:120], "interests": interests, "language": str(payload.get("language") or "en").strip().lower()[:16]}
+    existing = get_attendee_preferences(attendee_id)
+    if existing:
+        existing.update(item)
+    if storage_mode() == "supabase" and not str(attendee_id).startswith("att-"):
+        response = httpx.post(f"{settings.supabase_url}/rest/v1/attendee_preferences?on_conflict=attendee_id", headers={**_headers(), "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=representation"}, json=item, timeout=20)
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if rows else item
+    if not existing:
+        demo_store["attendee_preferences"].append(item)
+    return existing or item
 
 
 def get_share_link(token: str) -> dict | None:
