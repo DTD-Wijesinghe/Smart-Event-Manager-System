@@ -434,7 +434,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-async-enrichment", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-feedback-analytics", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:

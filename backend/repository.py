@@ -940,11 +940,19 @@ def analytics(event_id: str = "evt-001") -> dict:
     session_ids = {item["id"] for item in sessions}
     feedback = [item for item in list_items("feedback") if item.get("session_id") in session_ids]
     ratings = [item["session_rating"] for item in feedback if item.get("session_rating") is not None]
+    def numeric(field: str) -> list[float]:
+        return [float(item[field]) for item in feedback if item.get(field) not in (None, "")]
+    rating_distribution = {str(score): sum(1 for rating in ratings if int(float(rating)) == score) for score in range(1, 6)}
+    comments = [str(item.get("comment") or "").strip() for item in sorted(feedback, key=lambda row: row.get("created_at") or "", reverse=True) if str(item.get("comment") or "").strip()][:10]
+    positive_words = {"excellent", "great", "helpful", "clear", "useful", "good", "strong"}
+    needs_attention_words = {"poor", "confusing", "slow", "unclear", "improve", "difficult"}
+    comment_terms = " ".join(comments).lower()
+    sentiment = "positive" if sum(comment_terms.count(word) for word in positive_words) > sum(comment_terms.count(word) for word in needs_attention_words) else "needs_attention" if any(word in comment_terms for word in needs_attention_words) else "neutral"
     transcripts = [item for item in list_items("transcripts") if not session_ids or item.get("session_id") in session_ids]
     questions = [item for item in list_items("questions") if not session_ids or item.get("session_id") in session_ids]
     assets = [item for item in list_items("generated_assets") if not event_id or item.get("event_id") == event_id]
     poll_responses = list_items("poll_responses")
-    return {"event_id": event_id, "sessions": len(sessions), "attendees": sum(item.get("attendance", 0) for item in sessions), "transcripts": len(transcripts), "questions": len(questions), "poll_responses": len(poll_responses), "feedback_responses": len(feedback), "generated_assets": len(assets), "average_session_rating": round(sum(ratings) / len(ratings), 2) if ratings else None}
+    return {"event_id": event_id, "sessions": len(sessions), "attendees": sum(item.get("attendance", 0) for item in sessions), "transcripts": len(transcripts), "questions": len(questions), "poll_responses": len(poll_responses), "feedback_responses": len(feedback), "generated_assets": len(assets), "average_session_rating": round(sum(ratings) / len(ratings), 2) if ratings else None, "average_speaker_rating": round(sum(numeric("speaker_rating")) / len(numeric("speaker_rating")), 2) if numeric("speaker_rating") else None, "average_content_rating": round(sum(numeric("content_rating")) / len(numeric("content_rating")), 2) if numeric("content_rating") else None, "rating_distribution": rating_distribution, "feedback_comments": comments, "feedback_sentiment": sentiment}
 
 
 def event_intelligence(event_id: str | None = None) -> dict:
