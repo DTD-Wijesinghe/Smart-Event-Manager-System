@@ -142,21 +142,22 @@ def get_share_link(token: str) -> dict | None:
     event_id = link.get("event_id")
     events = list_items("events")
     event = next((item for item in events if item.get("id") == event_id), None)
-    sessions = [item for item in list_items("sessions") if item.get("event_id") == event_id] if event else []
+    sessions = [item for item in list_items("sessions") if item.get("event_id") == event_id and (not link.get("session_id") or item.get("id") == link.get("session_id"))] if event else []
     return {"link": link, "event": event or (events[0] if events else None), "sessions": sessions}
 
 
-def ensure_share_link(event_id: str) -> dict:
+def ensure_share_link(event_id: str, session_id: str | None = None) -> dict:
     events = list_items("events")
     event = next((item for item in events if item.get("id") == event_id), None)
     if not event:
         raise KeyError("Event not found")
-    existing = next((item for item in list_items("share_links") if item.get("event_id") == event_id), None)
+    existing = next((item for item in list_items("share_links") if item.get("event_id") == event_id and item.get("session_id") == session_id), None)
     if existing:
         return existing
     slug = str(event.get("slug") or event_id).strip().lower()
-    token = f"{re.sub(r'[^a-z0-9]+', '-', slug).strip('-')}-live"
-    item = {"id": f"lnk-{len(demo_store['share_links']) + 1:03d}", "event_id": event_id, "label": "Attendee portal", "token": token, "destination": f"/attendee/{slug}", "clicks": 0, "created_at": utc_now()}
+    suffix = f"-{session_id}" if session_id else "-live"
+    token = f"{re.sub(r'[^a-z0-9]+', '-', slug).strip('-')}{suffix}"
+    item = {"id": f"lnk-{len(demo_store['share_links']) + 1:03d}", "event_id": event_id, "session_id": session_id, "label": "Session portal" if session_id else "Attendee portal", "token": token, "destination": f"/attendee/{slug}", "clicks": 0, "created_at": utc_now()}
     return _create_item("share_links", item)
 
 

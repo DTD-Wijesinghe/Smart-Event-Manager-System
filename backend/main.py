@@ -668,9 +668,9 @@ def get_insights() -> list[dict]: return list_items("insights")
 
 
 @app.get(f"{settings.api_prefix}/share-links")
-def get_share_links(event_id: str | None = None) -> list[dict]:
+def get_share_links(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
     if event_id:
-        try: return [ensure_share_link(event_id)]
+        try: return [ensure_share_link(event_id, session_id)]
         except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
     return list_items("share_links")
 

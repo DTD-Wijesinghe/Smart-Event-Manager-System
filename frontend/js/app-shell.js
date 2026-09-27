@@ -95,7 +95,7 @@ async function load() {
       state.data = await api('/api/dashboard');
       state.view = 'overview';
     }
-    state.currentSessionId = activeSessionId();
+    state.currentSessionId = state.data?.share_links?.[0]?.session_id || activeSessionId();
     if (state.view !== 'landing') render();
   } catch (error) {
     if (/session is invalid|session.*expired|organizer login is required/i.test(error.message)) {
@@ -815,8 +815,18 @@ async function mountEventIntelligence() {
     if (target) target.innerHTML = `<div><div class="eyebrow">Top themes</div><div class="actions-row">${themes}</div></div><div><div class="eyebrow">Connections across rooms</div><div class="insight-list">${relationships}</div></div>`;
   } catch (error) { const target = document.querySelector('#event-intelligence-content'); if (target) target.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+async function mountSessionShareLinks() {
+  if (state.view !== 'connect' || document.querySelector('.session-share-panel')) return;
+  const sessions = state.data?.sessions || [];
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card session-share-panel"><div class="card-head"><div><h2>Session QR links</h2><p class="muted">Create a focused attendee doorway for each room. Scanning it opens the matching session.</p></div><span class="badge">Session-aware</span></div><div id="session-share-list" class="insight-list"><span class="muted">Preparing session links…</span></div></section>');
+  try {
+    const rows = await Promise.all(sessions.map(async session => ({session, link: (await api(`/api/share-links?event_id=${encodeURIComponent(state.data?.event?.id || '')}&session_id=${encodeURIComponent(session.id)}`))[0]})));
+    const list = document.querySelector('#session-share-list');
+    if (list) list.innerHTML = rows.map(({session, link}) => { const url = `${location.origin}/?share=${encodeURIComponent(link.token)}#attendee`; const qr = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(url)}`; return `<article class="insight session-share-row"><div><span class="kind">${esc(session.track || 'Session')} · ${esc(session.room || '')}</span><strong>${esc(session.title)}</strong><div class="link-row"><input readonly value="${esc(url)}"><button class="btn ghost" data-session-share="${esc(url)}">Copy</button></div></div><img class="qr-image small-qr" src="${qr}" alt="QR code for ${esc(session.title)}"></article>`; }).join('') || '<span class="muted">Create a session to generate a session QR link.</span>';
+  } catch (error) { const list = document.querySelector('#session-share-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();
@@ -979,6 +989,13 @@ return `${head('Distribution layer', 'Share & connect', 'Give every audience a d
 };
 
 const organizerViews = new Set(['overview', 'capture', 'sessions', 'attendees', 'content', 'connect', 'transcript', 'screen']);
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-session-share]');
+  if (!button) return;
+  event.preventDefault();
+  await navigator.clipboard?.writeText(button.dataset.sessionShare);
+  notify('Session link copied');
+}, true);
 document.addEventListener('click', event => {
   const link = event.target.closest('[data-view-link]');
   const next = link?.dataset.viewLink;

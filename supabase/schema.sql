@@ -54,6 +54,7 @@ create table if not exists public.insights (
 create table if not exists public.share_links (
   id uuid primary key default gen_random_uuid(),
   event_id uuid not null references public.events(id) on delete cascade,
+  session_id uuid references public.sessions(id) on delete cascade,
   label text not null,
   token text unique not null,
   destination text not null,

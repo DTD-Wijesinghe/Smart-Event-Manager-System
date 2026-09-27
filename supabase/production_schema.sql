@@ -80,10 +80,12 @@ create table if not exists public.insights (
   body text not null, confidence numeric default 0.9, created_at timestamptz not null default now()
 );
 create table if not exists public.share_links (
-  id uuid primary key default gen_random_uuid(), event_id uuid references public.events(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(), event_id uuid references public.events(id) on delete cascade, session_id uuid references public.sessions(id) on delete cascade,
   label text not null, token text unique not null, destination text not null, clicks integer not null default 0,
   created_at timestamptz not null default now()
 );
+alter table public.share_links add column if not exists session_id uuid references public.sessions(id) on delete cascade;
+create index if not exists share_links_session_idx on public.share_links(session_id);
 create table if not exists public.takeaways (
   id uuid primary key default gen_random_uuid(), session_id uuid not null references public.sessions(id) on delete cascade,
   title text not null, body text not null, confidence numeric, evidence jsonb not null default '[]', created_at timestamptz not null default now()
