@@ -24,7 +24,11 @@ class Settings:
     text_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
     batch_model = os.getenv("GEMINI_BATCH_MODEL", "gemini-3.5-transcribe-preview")
     live_model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.5-transcribe-preview")
-    embedding_provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
+    # Vertex embeddings are an explicit opt-in because the API can require
+    # billing even when the rest of the Gemini integration is configured.
+    requested_embedding_provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
+    vertex_embeddings_enabled = os.getenv("ENABLE_VERTEX_EMBEDDINGS", "false").lower() in {"1", "true", "yes", "on"}
+    embedding_provider = "vertex" if requested_embedding_provider == "vertex" and vertex_embeddings_enabled else "local"
     embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
     embedding_dimensions = int(os.getenv("GEMINI_EMBEDDING_DIMENSIONS", "256"))
     supabase_url = os.getenv("SUPABASE_URL", "")

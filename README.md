@@ -166,7 +166,7 @@ environment variable; set it in the Render dashboard rather than committing it.
 
 Knowledge retrieval uses a dependency-free local vector ranker by default. To
 enable dense Vertex retrieval after billing is enabled for the Google Cloud
-project, set `EMBEDDING_PROVIDER=vertex` and optionally set
+project, set `EMBEDDING_PROVIDER=vertex` and `ENABLE_VERTEX_EMBEDDINGS=true`, then optionally set
 `GEMINI_EMBEDDING_MODEL` (default `gemini-embedding-001`) and
 `GEMINI_EMBEDDING_DIMENSIONS` (default `256`). If Vertex embedding calls fail,
 search automatically falls back to the local ranker.
