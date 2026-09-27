@@ -1,6 +1,8 @@
 import httpx
 import uuid
 import re
+import hashlib
+import math
 from .config import settings
 from .demo_store import demo_store, utc_now
 
@@ -982,17 +984,41 @@ def event_intelligence(event_id: str | None = None) -> dict:
     return {"event": event, "mode": "grounded-local", "sessions": session_intelligence, "themes": topics, "cross_session_themes": cross_session[:20], "takeaways": takeaways[:20], "insights": insights[:20], "questions": question_themes[:50], "source_counts": {"sessions": len(sessions), "transcripts": len(transcripts), "insights": len(insights), "takeaways": len(takeaways), "questions": len(questions)}}
 
 
+def _local_retrieval_vector(text: str, dimensions: int = 96) -> list[float]:
+    """Create a deterministic, provider-neutral vector for local retrieval.
+
+    This is intentionally dependency-free so demo mode and small deployments do
+    not need an embedding service. The vectorizer can later be replaced by a
+    hosted embedding provider without changing the evidence contract.
+    """
+    vector = [0.0] * dimensions
+    tokens = re.findall(r"[a-z0-9][a-z0-9'-]{1,}", text.lower())
+    for token in tokens:
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        bucket = int.from_bytes(digest[:4], "big") % dimensions
+        vector[bucket] += 1.0 if digest[4] & 1 else -1.0
+    norm = math.sqrt(sum(value * value for value in vector))
+    return [value / norm for value in vector] if norm else vector
+
+
+def _vector_similarity(left: list[float], right: list[float]) -> float:
+    return round(sum(a * b for a, b in zip(left, right)), 4)
+
+
 def search_knowledge(query: str, event_id: str | None = None, session_id: str | None = None, speaker: str | None = None, source_type: str | None = None, language: str | None = None) -> list[dict]:
     """Search normalized event evidence and return traceable, ranked results.
 
     This is the provider-neutral retrieval layer used before Gemini. It keeps
     the system useful in demo mode while making normalized transcript segments,
     takeaways, questions, summaries, and reports first-class evidence sources.
+    Results combine lexical evidence with a deterministic local vector ranker,
+    keeping citations stable while making retrieval ready for hosted embeddings.
     """
     normalized_query = " ".join(query.lower().split())
     terms = {part for part in re.findall(r"[a-z0-9][a-z0-9'-]{1,}", normalized_query)}
     if not terms:
         return []
+    query_vector = _local_retrieval_vector(normalized_query)
     sessions = {item.get("id"): item for item in list_items("sessions")}
     collections = [
         ("session", list_items("sessions")),
@@ -1024,12 +1050,14 @@ def search_knowledge(query: str, event_id: str | None = None, session_id: str | 
                 score += 3
             if kind == "transcript_segment":
                 score += 1
-            if not score:
+            semantic_score = _vector_similarity(query_vector, _local_retrieval_vector(searchable))
+            if not score and semantic_score < 0.22:
                 continue
+            rank_score = round(score + max(0.0, semantic_score) * 4, 4)
             session = sessions.get(row.get("session_id")) or sessions.get(row.get("id"))
             snippet = row.get("text") or row.get("body") or row.get("summary") or str(row.get("content", ""))
-            results.append({"type": kind, "score": score, "id": row.get("id"), "title": row.get("title") or row.get("name") or snippet.split(".", 1)[0], "snippet": str(snippet)[:360], "session_id": row.get("session_id") or row.get("id"), "session_title": session.get("title") if session else None, "speaker": row.get("speaker"), "created_at": row.get("created_at"), "source_type": kind, "source_id": row.get("id")})
-    return sorted(results, key=lambda item: (item["score"], item.get("created_at") or ""), reverse=True)[:50]
+            results.append({"type": kind, "score": score, "semantic_score": semantic_score, "rank_score": rank_score, "embedding_model": "local-hash-v1", "id": row.get("id"), "title": row.get("title") or row.get("name") or snippet.split(".", 1)[0], "snippet": str(snippet)[:360], "session_id": row.get("session_id") or row.get("id"), "session_title": session.get("title") if session else None, "speaker": row.get("speaker"), "created_at": row.get("created_at"), "source_type": kind, "source_id": row.get("id")})
+    return sorted(results, key=lambda item: (item["rank_score"], item["score"], item.get("created_at") or ""), reverse=True)[:50]
 
 
 def topic_cloud(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
