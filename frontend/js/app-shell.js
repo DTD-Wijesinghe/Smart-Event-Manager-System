@@ -81,6 +81,21 @@ async function load() {
     render();
     return;
   }
+  const initialShareToken = new URLSearchParams(location.search).get('share');
+  if (initialShareToken) {
+    state.publicShareToken = initialShareToken;
+    try {
+      const shared = await api(`/api/public/share/${encodeURIComponent(initialShareToken)}`);
+      state.data = {event: shared.event || null, sessions: shared.sessions || [], share_links: shared.link ? [shared.link] : [], attendees: [], insights: [], transcripts: [], analytics: {}, mode: 'public'};
+      state.view = 'attendee';
+      state.currentSessionId = state.data.share_links?.[0]?.session_id || activeSessionId();
+      history.replaceState({view: 'attendee'}, '', `${location.pathname}?share=${encodeURIComponent(initialShareToken)}#attendee`);
+      render();
+      return;
+    } catch (_) {
+      state.publicShareToken = '';
+    }
+  }
   // Do not render a data-dependent organizer view until the dashboard has
   // arrived; the first render must remain safe on a cold page load.
   const requestedView = location.hash.replace(/^#/, '').split('?')[0];
