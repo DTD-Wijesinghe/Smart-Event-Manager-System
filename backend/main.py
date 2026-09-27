@@ -326,6 +326,7 @@ async def protect_api(request, call_next):
       or (relative == "transcript-segments" and method == "GET")
         or (relative.startswith("transcript-segments/") and method in {"GET", "POST"} and (relative.endswith("/translate") or relative.endswith("/translations")))
       or (relative == "topics" and method == "GET")
+      or (relative == "search" and method == "GET")
       or (relative == "ai/translate" and method == "POST")
     )
     if not path.startswith(f"{settings.api_prefix}/") or path in public or attendee_public:
@@ -1044,9 +1045,10 @@ def get_event_intelligence(event_id: str | None = None) -> dict:
 
 
 @app.get(f"{settings.api_prefix}/search")
-def search(query: str, event_id: str | None = None) -> list[dict]:
+def search(query: str, event_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
     if len(query.strip()) < 2:
         raise HTTPException(status_code=400, detail="Search query must be at least two characters")
+    _require_portal_access(authorization, share_token, event_id=event_id)
     return search_knowledge(query, event_id)
 
 
