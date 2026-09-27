@@ -49,6 +49,8 @@ demo_store = {
     "reports": [],
     "takeaways": [],
     "summaries": [],
+    "ai_conversations": [],
+    "ai_messages": [],
     "files": [],
     "processing_jobs": [],
     "auth_users": [],

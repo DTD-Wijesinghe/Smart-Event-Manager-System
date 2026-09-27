@@ -3,7 +3,7 @@ import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
-TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "insights", "share_links", "transcripts", "transcript_segments", "transcript_segment_revisions", "translations", "takeaways", "summaries", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs"}
+TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "insights", "share_links", "transcripts", "transcript_segments", "transcript_segment_revisions", "translations", "takeaways", "summaries", "ai_conversations", "ai_messages", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs"}
 
 
 def storage_mode() -> str:
@@ -175,7 +175,7 @@ def _remote_insert(table: str, item: dict) -> dict | None:
     # The dashboard may temporarily be rendering local demo rows while a new
     # Supabase project has no seed data. Never send those readable demo IDs to
     # UUID foreign-key columns; keep the action local until real rows exist.
-    foreign_keys = ("organization_id", "event_id", "session_id", "poll_id", "option_id", "asset_id", "speaker_id")
+    foreign_keys = ("organization_id", "event_id", "session_id", "poll_id", "option_id", "asset_id", "speaker_id", "conversation_id")
     if any(str(item.get(key, "")).startswith(("org-", "evt-", "ses-", "poll-", "q-", "asset-", "speaker-")) for key in foreign_keys if item.get(key)):
         return None
     payload = {key: value for key, value in item.items() if key != "id"}
@@ -724,6 +724,39 @@ def save_summary(payload: dict) -> dict:
 
 def list_summaries(session_id: str | None = None, event_id: str | None = None) -> list[dict]:
     return [item for item in list_items("summaries") if (not session_id or item.get("session_id") == session_id) and (not event_id or item.get("event_id") == event_id)]
+
+
+def create_ai_conversation(payload: dict) -> dict:
+    event_id, session_id = _default_foreign_keys(payload)
+    item = {"id": f"conv-{len(demo_store['ai_conversations']) + 1:04d}", "event_id": event_id, "session_id": payload.get("session_id") or session_id, "user_id": payload.get("user_id"), "title": str(payload.get("title") or "Event analyst conversation").strip()[:160], "created_at": utc_now(), "updated_at": utc_now()}
+    return _create_item("ai_conversations", item)
+
+
+def list_ai_conversations(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    rows = list_items("ai_conversations")
+    return sorted([row for row in rows if (not event_id or row.get("event_id") == event_id) and (not session_id or row.get("session_id") == session_id)], key=lambda row: row.get("updated_at") or row.get("created_at") or "", reverse=True)
+
+
+def create_ai_message(payload: dict) -> dict:
+    conversation_id = payload.get("conversation_id")
+    if not conversation_id:
+        raise ValueError("conversation_id is required")
+    role = str(payload.get("role") or "user")
+    if role not in {"user", "assistant", "system"}:
+        raise ValueError("Unsupported analyst message role")
+    content = str(payload.get("content") or "").strip()
+    if not content:
+        raise ValueError("Analyst message content is required")
+    item = {"id": f"msg-{len(demo_store['ai_messages']) + 1:05d}", "conversation_id": conversation_id, "role": role, "content": content[:12000], "citations": payload.get("citations") or [], "model": payload.get("model"), "created_at": utc_now()}
+    message = _create_item("ai_messages", item)
+    conversation = next((row for row in demo_store["ai_conversations"] if row.get("id") == conversation_id), None)
+    if conversation:
+        conversation["updated_at"] = item["created_at"]
+    return message
+
+
+def list_ai_messages(conversation_id: str) -> list[dict]:
+    return sorted([row for row in list_items("ai_messages") if row.get("conversation_id") == conversation_id], key=lambda row: row.get("created_at") or "")
 
 
 def analytics(event_id: str = "evt-001") -> dict:

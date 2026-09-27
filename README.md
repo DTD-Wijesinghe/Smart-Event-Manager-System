@@ -109,7 +109,9 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/intelligence?event_id=...` - evidence-linked event-wide themes and cross-session relationships
 - `GET /api/search?query=...&event_id=...` - search sessions, transcripts, insights, and generated assets
 - `GET /api/topics?event_id=...&session_id=...` - build an evidence-backed topic cloud
-- `POST /api/analyst/ask` - answer an event-grounded question with source citations
+- `POST /api/analyst/ask` - answer an event-grounded question with source citations and persist the conversation turn
+- `GET /api/analyst/conversations?event_id=...` - list saved analyst conversations
+- `GET /api/analyst/conversations/{conversation_id}/messages` - load questions, answers, and evidence citations
 - `GET /api/content/assets`
 - `GET /api/reports?event_id=...` - list grounded strategic reports for an event
 - `POST /api/reports/generate` - generate an evidence-linked report from selected event/session data
@@ -135,7 +137,7 @@ For the Supabase-backed workspace, run `supabase/production_schema.sql` in the S
 
 For a ready-to-view workspace after the migration, optionally run `supabase/seed_demo.sql` next. It creates the sample organization, event, session, insight, and attendee portal link without storing credentials.
 
-The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.
+The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, analyst conversations and messages, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.
 
 Organizer APIs require a valid session. Public attendee routes remain available from a share link. Mutating organizer routes are role checked: `super_admin`, `organization_admin`, and `event_organizer` can operate the event workspace; `content_editor` can create and edit content/report outputs; speaker and attendee roles are read/public oriented.
 

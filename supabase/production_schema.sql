@@ -102,6 +102,18 @@ create table if not exists public.summaries (
   content jsonb not null default '{}', model text, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   unique (session_id, language)
 );
+create table if not exists public.ai_conversations (
+  id uuid primary key default gen_random_uuid(), event_id uuid references public.events(id) on delete cascade,
+  session_id uuid references public.sessions(id) on delete set null, user_id uuid references public.profiles(id) on delete set null,
+  title text not null default 'Event analyst conversation', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table if not exists public.ai_messages (
+  id uuid primary key default gen_random_uuid(), conversation_id uuid not null references public.ai_conversations(id) on delete cascade,
+  role text not null check (role in ('user','assistant','system')), content text not null,
+  citations jsonb not null default '[]', model text, created_at timestamptz not null default now()
+);
+create index if not exists ai_conversations_event_idx on public.ai_conversations(event_id, updated_at desc);
+create index if not exists ai_messages_conversation_idx on public.ai_messages(conversation_id, created_at);
 create table if not exists public.attendees (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete set null, anonymous_token text unique, full_name text, email text,
@@ -212,6 +224,8 @@ alter table public.takeaways enable row level security;
 alter table public.topics enable row level security;
 alter table public.topic_relations enable row level security;
 alter table public.summaries enable row level security;
+alter table public.ai_conversations enable row level security;
+alter table public.ai_messages enable row level security;
 alter table public.attendees enable row level security;
 alter table public.attendee_preferences enable row level security;
 alter table public.questions enable row level security;

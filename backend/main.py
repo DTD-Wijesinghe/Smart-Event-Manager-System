@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import analytics, assign_session_speaker, attendee_matches, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_asset_versions, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, vote_question
+from .repository import analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
@@ -245,6 +245,7 @@ class AnalystRequest(BaseModel):
     question: str
     event_id: str | None = None
     session_id: str | None = None
+    conversation_id: str | None = None
 
 
 app = FastAPI(title="Smart Event Manager API", version="1.0.0")  # versioned content build verified
@@ -914,16 +915,40 @@ def get_topics(event_id: str | None = None, session_id: str | None = None) -> li
 def ask_analyst(request: AnalystRequest) -> dict:
     if len(request.question.strip()) < 3:
         raise HTTPException(status_code=400, detail="Ask a longer event question")
+    conversation_id = request.conversation_id
+    if conversation_id and not any(row.get("id") == conversation_id for row in list_items("ai_conversations")):
+        raise HTTPException(status_code=404, detail="Analyst conversation not found")
+    if not conversation_id:
+        conversation = create_ai_conversation({"event_id": request.event_id, "session_id": request.session_id, "title": request.question.strip()[:120]})
+        conversation_id = conversation["id"]
+    create_ai_message({"conversation_id": conversation_id, "role": "user", "content": request.question})
     sources = search_knowledge(request.question, request.event_id)
     if request.session_id:
         sources = [source for source in sources if source.get("session_id") == request.session_id]
     if not sources:
-        return {"mode": "grounded", "answer": "I could not find supporting event content for that question yet.", "citations": []}
+        answer = "I could not find supporting event content for that question yet. Capture or upload a session transcript, then ask again."
+        result = {"mode": "grounded", "answer": answer, "citations": []}
+        create_ai_message({"conversation_id": conversation_id, "role": "assistant", "content": answer, "citations": []})
+        return {"conversation_id": conversation_id, **result}
     try:
-        return {"mode": "ai", **analyst_answer(request.question, sources)}
+        result = {"mode": "ai", **analyst_answer(request.question, sources)}
     except Exception:
         excerpts = " ".join(source["snippet"] for source in sources[:3])
-        return {"mode": "fallback", "answer": f"Relevant event evidence: {excerpts}", "citations": sources[:3]}
+        result = {"mode": "fallback", "answer": f"Relevant event evidence: {excerpts}", "citations": sources[:3]}
+    create_ai_message({"conversation_id": conversation_id, "role": "assistant", "content": result["answer"], "citations": result.get("citations", []), "model": result.get("model")})
+    return {"conversation_id": conversation_id, **result}
+
+
+@app.get(f"{settings.api_prefix}/analyst/conversations")
+def get_analyst_conversations(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    return list_ai_conversations(event_id, session_id)
+
+
+@app.get(f"{settings.api_prefix}/analyst/conversations/{{conversation_id}}/messages")
+def get_analyst_messages(conversation_id: str) -> list[dict]:
+    if not any(row.get("id") == conversation_id for row in list_items("ai_conversations")):
+        raise HTTPException(status_code=404, detail="Analyst conversation not found")
+    return list_ai_messages(conversation_id)
 
 
 @app.get(f"{settings.api_prefix}/content/assets")

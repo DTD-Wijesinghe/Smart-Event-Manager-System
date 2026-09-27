@@ -139,6 +139,12 @@ html,body{max-width:100%;overflow-x:hidden}
   .auth-view{margin:-22px -16px 0;min-height:calc(100vh - 60px);display:flex;flex-direction:column}.auth-art{padding:48px 24px 34px;min-height:auto;flex:0 0 auto}.auth-art h1{font-size:clamp(44px,13vw,70px);line-height:.9;margin:16px 0}.auth-art p{font-size:15px;line-height:1.5}.auth-orbit{width:300px;height:300px;right:-160px;top:14%;opacity:.75}.auth-proof{position:relative;left:auto;right:auto;bottom:auto;margin-top:28px;line-height:1.5;flex-wrap:wrap}.auth-card{margin:18px 16px 28px;width:calc(100% - 32px);padding:18px}.auth-form h2{font-size:25px}.auth-tabs{overflow:auto;white-space:nowrap}.auth-tab{flex:0 0 auto}
 }
 
+/* Analyst conversation history */
+.analyst-history{border-top:1px solid var(--line);margin-top:22px;padding-top:18px}
+.analyst-conversation{display:flex;width:100%;align-items:center;justify-content:space-between;text-align:left;gap:14px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);background:#fafaf7;border-radius:10px}
+.analyst-conversation strong{font-size:12px;color:var(--ink);font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.analyst-conversation small{flex:0 0 auto}
+
 /* Translation playback control */
 .translation-output .listen-translation{margin-top:12px;padding:9px 13px;font-size:11px}
 

@@ -84,14 +84,14 @@ async function load() {
       state.data = {event: shared.event || null, sessions: shared.sessions || [], share_links: shared.link ? [shared.link] : [], attendees: [], insights: [], transcripts: [], analytics: {}, mode: 'public'};
       state.view = 'attendee';
       history.replaceState({view: 'attendee'}, '', `${location.pathname}?share=${encodeURIComponent(shareToken)}#attendee`);
-    } else {
+    } else if (state.authenticated) {
       state.data = await api('/api/dashboard');
-      if (state.authenticated) state.view = 'overview';
+      state.view = 'overview';
     }
     state.currentSessionId = activeSessionId();
     if (state.view !== 'landing') render();
   } catch (error) {
-    if (state.view !== 'landing') {
+    if (state.view !== 'landing' && state.view !== 'auth') {
       app.innerHTML = `<div class="empty">Could not load the event workspace.<br><small>${esc(error.message)}</small></div>`;
     }
   }
@@ -674,9 +674,14 @@ async function mountBrandKit() {
     if (form) Object.entries(kit).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value || ''; });
   } catch (error) { const form = document.querySelector('#brand-kit-form'); if (form) form.insertAdjacentHTML('afterend', `<span class="muted">${esc(error.message)}</span>`); }
 }
-function mountAnalystPanel() {
+async function mountAnalystPanel() {
   if (state.view !== 'content' || document.querySelector('.analyst-panel')) return;
-  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card analyst-panel"><div class="card-head"><div><h2>Ask the event analyst</h2><p class="muted">Ask a question about captured sessions. Answers stay grounded in your event evidence.</p></div><span class="badge">Source linked</span></div><form id="analyst-form" class="capture-form"><textarea name="question" rows="3" required placeholder="What themes or opportunities appeared across the event?"></textarea><div class="capture-form-row"><button class="btn purple">Ask analyst ↗</button></div></form><div id="analyst-result" class="insight-list"></div></section>');
+  document.querySelector('.page')?.insertAdjacentHTML('beforeend', '<section class="card section-card analyst-panel"><div class="card-head"><div><h2>Ask the event analyst</h2><p class="muted">Ask a question about captured sessions. Answers stay grounded in your event evidence.</p></div><span class="badge">Source linked</span></div><form id="analyst-form" class="capture-form"><textarea name="question" rows="3" required placeholder="What themes or opportunities appeared across the event?"></textarea><div class="capture-form-row"><button class="btn purple">Ask analyst ↗</button></div></form><div id="analyst-result" class="insight-list"></div><div class="analyst-history"><div class="eyebrow">Conversation history</div><div id="analyst-conversations" class="insight-list"><span class="muted">Loading analyst history…</span></div></div></section>');
+  try {
+    const conversations = await api(`/api/analyst/conversations?event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    const history = document.querySelector('#analyst-conversations');
+    if (history) history.innerHTML = conversations.length ? conversations.slice(0, 8).map(item => `<button class="insight analyst-conversation" data-analyst-conversation="${esc(item.id)}"><strong>${esc(item.title || 'Event analyst conversation')}</strong><small class="muted">${esc(item.updated_at || item.created_at || '')}</small></button>`).join('') : '<span class="muted">Your grounded questions will appear here.</span>';
+  } catch (error) { const history = document.querySelector('#analyst-conversations'); if (history) history.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 function mountSearchPanel() {
   if (state.view !== 'content' || document.querySelector('.search-panel')) return;
@@ -882,6 +887,19 @@ window.addEventListener('popstate', () => {
     render();
   }
 });
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-analyst-conversation]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const output = document.querySelector('#analyst-result');
+  if (output) output.innerHTML = '<div class="muted">Loading conversation…</div>';
+  try {
+    const messages = await api(`/api/analyst/conversations/${encodeURIComponent(button.dataset.analystConversation)}/messages`);
+    if (output) output.innerHTML = messages.map(message => `<div class="insight"><span class="kind">${esc(message.role)}</span><p>${esc(message.content)}</p>${(message.citations || []).slice(0, 3).map(source => `<small class="muted">${esc(source.session_title || source.session_id || 'Event source')} · ${esc(source.snippet || '')}</small>`).join('<br>')}</div>`).join('') || '<div class="muted">This conversation has no messages yet.</div>';
+  } catch (error) { if (output) output.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
+}, true);
 
 // The public portal URL carries the share token so opening a QR code or an
 // embedded WebView loads the same event data and records the portal visit.
