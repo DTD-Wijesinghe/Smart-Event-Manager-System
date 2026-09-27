@@ -1,3 +1,8 @@
+-- LEGACY REFERENCE ONLY.
+-- New deployments must run production_schema.sql, which contains the complete
+-- organizations, auth, event, transcript, attendee, content, jobs, and
+-- integrations model used by the current FastAPI service.
+-- Keeping this small baseline avoids breaking older local demos.
 create extension if not exists "pgcrypto";
 
 create table if not exists public.events (

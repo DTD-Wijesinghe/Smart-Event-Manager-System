@@ -20,7 +20,8 @@ smart-event-manager-app/
 │  ├─ demo_store.py         # Local demo data
 │  ├─ repository.py         # Demo data access
 │  └─ vertex_ai.py          # Vertex AI / Gemini integration
-├─ supabase/schema.sql     # Database schema and RLS baseline
+├─ supabase/production_schema.sql # Current production schema and RLS baseline
+├─ supabase/schema.sql     # Legacy minimal schema kept for reference
 └─ server.mjs              # Small process entry point
 ```
 
@@ -144,7 +145,7 @@ and is never treated as an organizer credential.
 4. Remix: use the Content Studio to prepare executive briefs, attendee recaps, speaker packs, and social-ready moments.
 5. Prove value: use sessions, attendee signals, insights, share-link clicks, and reports to show what resonated.
 
-For the Supabase-backed workspace, run `supabase/production_schema.sql` in the Supabase SQL Editor before enabling the service-role variables. The public landing page and demo capture flow remain usable while the database is unavailable. The API lets Supabase generate UUIDs for persisted rows, while the local demo store keeps its readable IDs.
+For the Supabase-backed workspace, run **`supabase/production_schema.sql`** in the Supabase SQL Editor before enabling the service-role variables. Do not use the legacy `supabase/schema.sql` for a new deployment; it predates the current organizations, auth, content, jobs, and attendee workflows and does not create the tables used by the production API. The public landing page and demo capture flow remain usable while the database is unavailable. The API lets Supabase generate UUIDs for persisted rows, while the local demo store keeps its readable IDs.
 
 For a ready-to-view workspace after the migration, optionally run `supabase/seed_demo.sql` next. It creates the sample organization, event, session, insight, and attendee portal link without storing credentials.
 
