@@ -25,6 +25,8 @@ async function api(path, options = {}, retry = false) {
       localStorage.setItem('smart-event-session', JSON.stringify(refreshPayload.session || {}));
       return api(path, options, true);
     }
+    localStorage.removeItem('smart-event-session');
+    state.authenticated = false;
   }
   if (!response.ok) throw new Error(payload?.detail || payload?.error || 'Request failed');
   return payload;
@@ -92,6 +94,15 @@ async function load() {
     state.currentSessionId = activeSessionId();
     if (state.view !== 'landing') render();
   } catch (error) {
+    if (/session is invalid|session.*expired|organizer login is required/i.test(error.message)) {
+      localStorage.removeItem('smart-event-session');
+      state.authenticated = false;
+      state.authMode = 'login';
+      state.view = 'auth';
+      render();
+      notify('Your session expired. Please log in again.');
+      return;
+    }
     if (state.view !== 'landing' && state.view !== 'auth') {
       app.innerHTML = `<div class="empty">Could not load the event workspace.<br><small>${esc(error.message)}</small></div>`;
     }
@@ -104,6 +115,15 @@ async function openWorkspace(message) {
     render();
     notify(message);
   } catch (error) {
+    if (/session is invalid|session.*expired|organizer login is required/i.test(error.message)) {
+      localStorage.removeItem('smart-event-session');
+      state.authenticated = false;
+      state.authMode = 'login';
+      state.view = 'auth';
+      render();
+      notify('Your session expired. Please log in again.');
+      return;
+    }
     notify(`Workspace data is unavailable: ${error.message}`);
   }
 }
