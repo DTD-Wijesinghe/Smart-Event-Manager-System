@@ -310,7 +310,7 @@ async def protect_api(request, call_next):
     token = authorization.removeprefix("Bearer ").strip()
     role = ""
     try:
-        if not settings.supabase_url:
+        if not settings.supabase_url or not settings.supabase_anon_key:
             session = demo_store.setdefault("auth_sessions", {}).get(token)
             if not session:
                 signed = _demo_token_payload(token, "access")
@@ -416,7 +416,7 @@ def forgot_password(request: RecoveryRequest) -> dict:
 
 @app.post(f"{settings.api_prefix}/auth/logout")
 def logout(authorization: str | None = Header(default=None)) -> dict:
-    if not settings.supabase_url and authorization:
+    if (not settings.supabase_url or not settings.supabase_anon_key) and authorization:
         token = authorization.removeprefix("Bearer ").strip()
         demo_store.setdefault("auth_sessions", {}).pop(token, None)
         return {"ok": True}
