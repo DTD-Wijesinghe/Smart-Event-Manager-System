@@ -38,6 +38,23 @@ async function api(path, options = {}, retry = false) {
   if (!response.ok) throw new Error(payload?.detail || payload?.error || 'Request failed');
   return payload;
 }
+function uploadWithProgress(path, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const stored = JSON.parse(localStorage.getItem('smart-event-session') || '{}');
+    xhr.open('POST', path);
+    if (stored.access_token) xhr.setRequestHeader('Authorization', `Bearer ${stored.access_token}`);
+    xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); };
+    xhr.onerror = () => reject(new Error('Upload connection failed'));
+    xhr.onload = () => {
+      let payload = null;
+      try { payload = JSON.parse(xhr.responseText); } catch (_) { /* handled below */ }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(payload);
+      reject(new Error(payload?.detail || payload?.error || 'Upload failed'));
+    };
+    xhr.send(formData);
+  });
+}
 
 // Browser speech playback for translated transcript results. The server still
 // owns translation; this keeps audio playback private to the attendee's device.
@@ -1254,9 +1271,10 @@ document.addEventListener('submit', async e => {
     try {
       form.append('session_id', activeSessionId());
       form.append('event_id', state.data?.event?.id || '');
-      const result = await api('/api/files/upload', { method: 'POST', body: form });
-      state.data = await api('/api/dashboard');
       const status = document.querySelector('#upload-status');
+      if (status) status.textContent = 'Uploading · 0%';
+      const result = await uploadWithProgress('/api/files/upload', form, progress => { if (status) status.textContent = `Uploading · ${progress}%`; });
+      state.data = await api('/api/dashboard');
       if (status) status.textContent = `Queued ${result.file?.original_name || 'upload'} for background transcription.`;
       notify('Upload queued — processing has started');
       const pollJob = async (attempt = 0) => {
