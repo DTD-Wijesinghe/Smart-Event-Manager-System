@@ -51,6 +51,24 @@ def create_file(payload: dict) -> dict:
     return _create_item("files", item)
 
 
+def update_file(file_id: str, **changes: object) -> dict:
+    file_record = next((item for item in list_items("files") if item.get("id") == file_id), None)
+    if not file_record:
+        raise KeyError("File not found")
+    allowed_statuses = {"uploaded", "processing", "completed", "failed"}
+    if changes.get("status") is not None and changes["status"] not in allowed_statuses:
+        raise ValueError("Unsupported file status")
+    file_record.update({key: value for key, value in changes.items() if value is not None})
+    if storage_mode() == "supabase" and not str(file_id).startswith("file-"):
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/files?id=eq.{file_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json={key: value for key, value in changes.items() if value is not None}, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return rows[0]
+    return file_record
+
+
 def create_processing_job(payload: dict) -> dict:
     event_id, session_id = _default_foreign_keys(payload)
     item = {"id": f"job-{len(demo_store['processing_jobs']) + 1:04d}", "event_id": event_id, "session_id": session_id, "job_type": payload.get("job_type", "transcription"), "status": payload.get("status", "queued"), "progress": int(payload.get("progress") or 0), "error_message": payload.get("error_message"), "attempts": int(payload.get("attempts") or 0), "created_at": utc_now(), "updated_at": utc_now()}

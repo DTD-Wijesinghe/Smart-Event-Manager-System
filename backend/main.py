@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
 from .demo_store import demo_store
-from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
+from .repository import admin_overview, analytics, assign_session_speaker, attendee_matches, create_ai_conversation, create_ai_message, create_event, create_feedback, create_file, create_generated_asset, create_insight, create_invitation, create_organization, create_poll, create_processing_job, create_question, create_report, create_session, create_speaker, create_takeaway, create_transcript, create_translation as persist_translation, dashboard, delete_event, delete_file, delete_session, delete_speaker, duplicate_session, ensure_share_link, event_intelligence, get_brand_kit, get_share_link, list_ai_conversations, list_ai_messages, list_asset_versions, list_integrations, list_items, list_reports, list_session_speakers, list_summaries, list_transcript_segment_revisions, list_transcript_segments, moderate_question, respond_poll, save_summary, search_knowledge, set_attendee_checkin, set_session_status, share_link_allows, storage_mode, team_workspace, topic_cloud, unassign_session_speaker, update_event, update_file, update_generated_asset, update_organization, update_poll, update_processing_job, update_session, update_speaker, update_team_member, update_transcript_segment, upsert_brand_kit, upsert_integration, vote_question
 from .vertex_ai import analyst_answer, generate_content as generate_content_ai, rewrite_content as rewrite_content_ai, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
@@ -962,8 +962,13 @@ async def _process_upload(file_record: dict, job: dict, raw: bytes, language: st
         capture = {"text": text, "model": model, "language": language, "session_id": file_record["session_id"], "speaker": "Uploaded recording"}
         create_transcript(capture)
         create_insight(capture)
+        update_file(file_record["id"], status="completed")
         update_processing_job(job["id"], status="completed", progress=100, error_message=None)
     except Exception as exc:
+        try:
+            update_file(file_record["id"], status="failed")
+        except (KeyError, ValueError):
+            pass
         update_processing_job(job["id"], status="failed", progress=100, error_message=str(exc))
 
 
