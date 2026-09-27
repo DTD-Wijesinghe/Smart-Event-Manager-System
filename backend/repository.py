@@ -3,8 +3,11 @@ import uuid
 import re
 import hashlib
 import math
+import logging
 from .config import settings
 from .demo_store import demo_store, utc_now
+
+logger = logging.getLogger(__name__)
 
 TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "speakers", "session_speakers", "attendees", "attendee_preferences", "insights", "share_links", "transcripts", "transcript_segments", "transcript_segment_revisions", "translations", "takeaways", "summaries", "topics", "topic_relations", "ai_conversations", "ai_messages", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets", "generated_asset_versions", "reports", "files", "processing_jobs", "integrations", "audit_logs"}
 
@@ -1067,9 +1070,9 @@ def search_knowledge(query: str, event_id: str | None = None, session_id: str | 
                 item["semantic_score"] = _vector_similarity(query_embedding, embedding)
                 item["rank_score"] = round(item["score"] + max(0.0, item["semantic_score"]) * 4, 4)
                 item["embedding_model"] = settings.embedding_model
-        except Exception:
+        except Exception as exc:
             # Provider outages must not make event search unavailable.
-            pass
+            logger.warning("Vertex embedding retrieval unavailable; using local ranker: %s", exc)
     return sorted(results, key=lambda item: (item["rank_score"], item["score"], item.get("created_at") or ""), reverse=True)[:50]
 
 
