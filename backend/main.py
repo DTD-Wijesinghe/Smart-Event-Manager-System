@@ -11,6 +11,7 @@ import logging
 import hashlib
 import hmac
 import secrets
+import time
 from typing import Any
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -24,6 +25,29 @@ from .repository import analytics, assign_session_speaker, attendee_matches, cre
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 logger = logging.getLogger("smart_event_manager")
+_RATE_STATE: dict[str, list[float]] = {}
+
+
+def _rate_limit_key(request, relative: str) -> tuple[str, int] | None:
+    method = request.method.upper()
+    if method in {"GET", "HEAD", "OPTIONS"}:
+        return None
+    if relative.startswith("auth/"):
+        return f"auth:{request.client.host if request.client else 'unknown'}", 10
+    if relative.startswith("files/upload"):
+        return f"upload:{request.client.host if request.client else 'unknown'}", 10
+    return f"write:{request.client.host if request.client else 'unknown'}", 60
+
+
+def _rate_limited(key: str, limit: int, window: float = 60.0) -> bool:
+    now = time.monotonic()
+    recent = [stamp for stamp in _RATE_STATE.get(key, []) if now - stamp < window]
+    if len(recent) >= limit:
+        _RATE_STATE[key] = recent
+        return True
+    recent.append(now)
+    _RATE_STATE[key] = recent
+    return False
 
 
 def _demo_password(password: str, salt: str | None = None) -> str:
@@ -240,6 +264,9 @@ async def protect_api(request, call_next):
     public = {f"{settings.api_prefix}/health"} | {f"{settings.api_prefix}/auth/{name}" for name in ("register", "login", "forgot-password", "refresh", "reset-password", "logout")}
     relative = path.removeprefix(f"{settings.api_prefix}/")
     method = request.method.upper()
+    rate_key = _rate_limit_key(request, relative) if path.startswith(f"{settings.api_prefix}/") else None
+    if rate_key and _rate_limited(*rate_key):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests. Please retry shortly."}, headers={"Retry-After": "60"})
     attendee_public = (
         relative.startswith("public/share")
         or (relative == "questions" and method in {"GET", "POST"})
@@ -349,7 +376,15 @@ def forgot_password(request: RecoveryRequest) -> dict:
         if not response.is_success:
             detail = response.json().get("msg") or "Password recovery request failed"
             raise HTTPException(status_code=response.status_code, detail=detail)
-    return {"ok": True, "message": "If the email exists, a reset link is on its way"}
+        return {"ok": True, "message": "If the email exists, a reset link is on its way"}
+    email = request.email.strip().lower()
+    user = next((item for item in demo_store.setdefault("auth_users", []) if item.get("email") == email), None)
+    result = {"ok": True, "message": "If the email exists, a reset link is on its way"}
+    if user:
+        token = f"demo-reset-{secrets.token_urlsafe(32)}"
+        demo_store.setdefault("auth_reset_tokens", {})[token] = email
+        result["reset_token"] = token
+    return result
 
 
 @app.post(f"{settings.api_prefix}/auth/logout")
@@ -385,6 +420,14 @@ def reset_password(request: ResetPasswordRequest, authorization: str | None = He
     if len(request.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     if not settings.supabase_url or not settings.supabase_anon_key:
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        email = demo_store.setdefault("auth_reset_tokens", {}).pop(token, None)
+        if not email:
+            raise HTTPException(status_code=401, detail="Recovery link is invalid or expired")
+        user = next((item for item in demo_store.setdefault("auth_users", []) if item.get("email") == email), None)
+        if not user:
+            raise HTTPException(status_code=401, detail="Recovery link is invalid or expired")
+        user["password_hash"] = _demo_password(request.password)
         return {"mode": "demo", "ok": True, "message": "Password updated"}
     if not authorization:
         raise HTTPException(status_code=401, detail="Recovery authorization is required")

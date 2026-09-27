@@ -54,6 +54,7 @@ demo_store = {
     "auth_users": [],
     "auth_sessions": {},
     "auth_refresh_tokens": {},
+    "auth_reset_tokens": {},
 }
 
 
