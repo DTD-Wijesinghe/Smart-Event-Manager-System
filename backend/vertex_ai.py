@@ -65,9 +65,12 @@ def analyst_answer(question: str, sources: list[dict]) -> dict:
     return {"model": settings.text_model, "answer": response.text or "", "citations": sources[:12]}
 
 
-def transcribe(audio: bytes, mime_type: str = "audio/webm", language_codes: list[str] | None = None) -> dict:
+def transcribe(audio: bytes, mime_type: str = "audio/webm", language_codes: list[str] | None = None, vocabulary: list[str] | None = None) -> dict:
     if len(audio) > 20 * 1024 * 1024:
         raise ValueError("Inline audio is limited to 20 MB")
     contents = types.Content(parts=[types.Part.from_bytes(data=audio, mime_type=mime_type)])
-    response = client().models.generate_content(model=settings.batch_model, contents=contents, config=types.GenerateContentConfig(system_instruction="Transcribe the provided event audio accurately. Identify speakers when possible and preserve the spoken language."))
-    return {"model": settings.batch_model, "transcript": response.text or "", "languageCodes": language_codes or []}
+    terms = [str(item).strip() for item in (vocabulary or []) if str(item).strip()][:80]
+    vocabulary_hint = f" Pay special attention to these names, brands, and technical terms; preserve their spelling: {', '.join(terms)}." if terms else ""
+    instruction = f"Transcribe the provided event audio accurately. Identify speakers when possible and preserve the spoken language.{vocabulary_hint}"
+    response = client().models.generate_content(model=settings.batch_model, contents=contents, config=types.GenerateContentConfig(system_instruction=instruction))
+    return {"model": settings.batch_model, "transcript": response.text or "", "languageCodes": language_codes or [], "vocabulary": terms}

@@ -968,7 +968,7 @@ def _safe_upload_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", base)[:160] or "upload"
 
 
-async def _process_upload(file_record: dict, job: dict, raw: bytes, language: str) -> None:
+async def _process_upload(file_record: dict, job: dict, raw: bytes, language: str, vocabulary: list[str] | None = None) -> None:
     try:
         update_processing_job(job["id"], status="running", progress=10, attempts=int(job.get("attempts") or 0) + 1)
         suffix = Path(file_record["original_name"]).suffix.lower()
@@ -979,7 +979,7 @@ async def _process_upload(file_record: dict, job: dict, raw: bytes, language: st
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
             model = "uploaded-transcript"
         else:
-            result = transcribe(raw, file_record["mime_type"], [] if language == "auto" else [language])
+            result = transcribe(raw, file_record["mime_type"], [] if language == "auto" else [language], vocabulary or [])
             text, model = result.get("transcript", ""), result.get("model", "uploaded-audio")
         if not text.strip():
             raise ValueError("The uploaded file did not contain readable transcript text")
@@ -997,7 +997,7 @@ async def _process_upload(file_record: dict, job: dict, raw: bytes, language: st
 
 
 @app.post(f"{settings.api_prefix}/files/upload", status_code=202)
-async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = File(...), session_id: str = Form("ses-001"), event_id: str | None = Form(None), language: str = Form("auto")) -> dict:
+async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = File(...), session_id: str = Form("ses-001"), event_id: str | None = Form(None), language: str = Form("auto"), vocabulary: str = Form("")) -> dict:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(status_code=415, detail=f"Unsupported upload type: {suffix or 'missing extension'}")
@@ -1013,7 +1013,8 @@ async def upload_media(background_tasks: BackgroundTasks, file: UploadFile = Fil
     destination.write_bytes(raw)
     file_record = create_file({"event_id": event_id, "session_id": session_id, "original_name": file.filename or "upload", "storage_path": str(destination), "mime_type": file.content_type or "application/octet-stream", "size_bytes": len(raw), "status": "processing"})
     job = create_processing_job({"event_id": event_id, "session_id": session_id, "job_type": "transcription", "status": "queued", "progress": 0})
-    background_tasks.add_task(_process_upload, file_record, job, raw, language)
+    terms = [item.strip() for item in re.split(r"[,\n]", vocabulary) if item.strip()][:80]
+    background_tasks.add_task(_process_upload, file_record, job, raw, language, terms)
     return {"file": file_record, "job": job, "status": "queued"}
 
 
@@ -1444,9 +1445,10 @@ def create_translation(request: TranslateRequest, share_token: str | None = None
 
 
 @app.post(f"{settings.api_prefix}/transcription/batch")
-async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form("ses-001"), language: str = Form("auto")) -> dict:
+async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form("ses-001"), language: str = Form("auto"), vocabulary: str = Form("")) -> dict:
     try:
-        result = transcribe(await file.read(), file.content_type or "audio/webm", [] if language == "auto" else [language])
+        terms = [item.strip() for item in re.split(r"[,\n]", vocabulary) if item.strip()][:80]
+        result = transcribe(await file.read(), file.content_type or "audio/webm", [] if language == "auto" else [language], terms)
         capture = {"text": result["transcript"], "model": result["model"], "language": language, "session_id": session_id, "speaker": "Detected speaker"}
         saved = create_transcript(capture)
         insight = create_insight(capture)
