@@ -142,6 +142,26 @@ html,body{max-width:100%;overflow-x:hidden}
 .studio-card.orange{background:var(--orange);border-color:var(--orange)}
 .studio-card.lilac{background:#e9e2ff;border-color:#e9e2ff}
 
+/* Form readability: keep labels, fields, and actions in independent columns. */
+.capture-form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;align-items:end;margin-top:18px}
+.capture-form-row>label{display:grid;gap:7px;min-width:0;color:#777886;font-size:11px;text-transform:uppercase;letter-spacing:.1em;font-weight:800}
+.capture-form-row>input,.capture-form-row>select,.capture-form-row>textarea,.capture-form-row>button{min-width:0;width:100%}
+.capture-form-row>button{white-space:normal;min-height:42px}
+.form-grid .capture-form-row{margin:0}
+.form-grid .capture-form-row>label{width:100%}
+.card-head{gap:14px;flex-wrap:wrap}
+.card-head>div{min-width:0;flex:1 1 280px}
+.card-head .badge{flex:0 1 auto;white-space:normal;text-align:center}
+.card-head h2,.card-head p{overflow-wrap:anywhere}
+textarea{max-width:100%;resize:vertical}
+input,select,textarea{min-width:0}
+
+@media(max-width:800px){
+  .capture-form-row,.form-grid .capture-form-row{grid-template-columns:1fr;gap:12px}
+  .capture-form-row>button{width:100%}
+  .card-head{align-items:flex-start}
+}
+
 /* Analyst conversation history */
 .analyst-history{border-top:1px solid var(--line);margin-top:22px;padding-top:18px}
 .analyst-conversation{display:flex;width:100%;align-items:center;justify-content:space-between;text-align:left;gap:14px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);background:#fafaf7;border-radius:10px}
