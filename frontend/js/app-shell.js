@@ -215,6 +215,11 @@ function syncEventChrome() { const name = state.data?.event?.name || 'Global Fut
 const originalEventModal = eventModal;
 eventModal = function eventModalWithChoices(mode = 'edit') {
   originalEventModal(mode);
+  const status = document.querySelector('#event-form select[name="status"]');
+  if (status && !status.querySelector('option[value="archived"]')) {
+    status.insertAdjacentHTML('beforeend', '<option value="archived">Archived</option>');
+  }
+  if (status && state.data?.event?.status === 'archived') status.value = 'archived';
   let choices = document.querySelector('#event-choices');
   if (!choices) {
     const form = document.querySelector('#event-form');
