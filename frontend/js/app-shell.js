@@ -502,11 +502,35 @@ document.addEventListener('click', async e => {
       window.__captureStream = stream;
       if (!window.MediaRecorder) return notify('Audio recording is unavailable in this browser');
       const chunks = [];
+      const storedSession = JSON.parse(localStorage.getItem('smart-event-session') || '{}');
+      const liveSessionId = activeSessionId();
+      let liveSocket = null;
+      let streamedChunks = 0;
+      let liveSocketError = false;
+      if (storedSession.access_token) {
+        const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+        liveSocket = new WebSocket(`${protocol}://${location.host}/api/ws/capture/${encodeURIComponent(liveSessionId)}?token=${encodeURIComponent(storedSession.access_token)}`);
+        liveSocket.onopen = () => { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Listening · live bridge'; };
+        liveSocket.onmessage = event => { try { const message = JSON.parse(event.data); if (message.type === 'capture') { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Live transcript'; } if (message.type === 'error') liveSocketError = true; } catch (_) {} };
+        liveSocket.onerror = () => { liveSocketError = true; };
+        liveSocket.onclose = () => { window.__captureLiveSocket = null; };
+        window.__captureLiveSocket = liveSocket;
+      }
       const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+      recorder.ondataavailable = event => { if (!event.data.size) return; chunks.push(event.data); if (liveSocket?.readyState === WebSocket.OPEN && !liveSocketError) { liveSocket.send(event.data); streamedChunks += 1; } };
       recorder.onstop = async () => {
         const status = document.querySelector('#capture-status');
         if (!chunks.length) return notify('No audio was captured');
+        if (liveSocket && streamedChunks && !liveSocketError) {
+          await new Promise(resolve => setTimeout(resolve, 600));
+          liveSocket.close();
+          window.__captureLiveSocket = null;
+          state.data = await api('/api/dashboard');
+          if (status) status.textContent = 'Live transcript ready';
+          notify(`Live audio streamed through ${streamedChunks} capture chunk${streamedChunks === 1 ? '' : 's'}`);
+          return;
+        }
+        if (liveSocket && liveSocket.readyState < WebSocket.CLOSING) liveSocket.close();
         if (status) status.textContent = 'Transcribing';
         try {
           const form = new FormData();
