@@ -28,6 +28,37 @@ async function api(path, options = {}, retry = false) {
   if (!response.ok) throw new Error(payload?.detail || payload?.error || 'Request failed');
   return payload;
 }
+
+// Browser speech playback for translated transcript results. The server still
+// owns translation; this keeps audio playback private to the attendee's device.
+const TRANSLATION_LOCALES = {English:'en-US', Spanish:'es-ES', French:'fr-FR', Japanese:'ja-JP', Arabic:'ar-SA', Portuguese:'pt-BR', Tamil:'ta-IN'};
+const translationPlaybackObserver = new MutationObserver(() => {
+  const output = document.querySelector('.translation-output');
+  if (!output || output.querySelector('[data-action="speak-translation"]')) return;
+  const kind = output.querySelector('.kind')?.textContent || 'English translation';
+  const language = kind.replace(/\s+translation.*$/i, '').trim() || 'English';
+  const paragraph = output.querySelector('p');
+  if (!paragraph?.textContent?.trim()) return;
+  window.__smartEventTranslation = {text: paragraph.textContent.trim(), language};
+  output.insertAdjacentHTML('beforeend', '<button class="btn ghost listen-translation" data-action="speak-translation" type="button">▶ Listen</button>');
+});
+if (document.body) translationPlaybackObserver.observe(document.body, {childList:true, subtree:true});
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-action="speak-translation"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const item = window.__smartEventTranslation;
+  if (!item?.text) return notify('Translate a transcript first');
+  if (!('speechSynthesis' in window)) return notify('Audio playback is not supported in this browser');
+  if (speechSynthesis.speaking) { speechSynthesis.cancel(); button.textContent = '▶ Listen'; return; }
+  const utterance = new SpeechSynthesisUtterance(item.text);
+  utterance.lang = TRANSLATION_LOCALES[item.language] || 'en-US';
+  utterance.onend = () => { button.textContent = '▶ Listen'; };
+  utterance.onerror = () => { button.textContent = '▶ Listen'; notify('Audio playback could not start'); };
+  button.textContent = '■ Stop';
+  speechSynthesis.speak(utterance);
+}, true);
 async function load() {
   // Render the public landing page immediately. The marketing page must not
   // disappear just because the organizer data/API is temporarily unavailable.
@@ -227,6 +258,18 @@ document.addEventListener('submit', async event => {
     render();
     notify('Session updated');
   } catch (error) { notify(error.message); }
+}, true);
+
+// Keep public auth links reliable even when the landing page is loaded directly.
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-view-link="auth"]');
+  if (!link || state.authenticated) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  state.authMode = link.dataset.authMode || 'login';
+  state.view = 'auth';
+  history.replaceState({view: 'auth'}, '', `${location.pathname}${location.search}#auth`);
+  render();
 }, true);
 
 document.addEventListener('click', event => {
@@ -818,7 +861,7 @@ document.addEventListener('submit', async e => {
 }, true);
 
 // Keep browser Back/Forward inside the single-page workspace.
-if (!history.state?.view) history.replaceState({view: state.view}, '', `${location.pathname}${location.search}#landing`);
+if (!history.state?.view) history.replaceState({view: state.view}, '', `${location.pathname}${location.search}#${state.view}`);
 document.addEventListener('click', e => {
   const target = e.target.closest('.nav-item:not(.capture-launch), [data-view-link]');
   if (!target) return;
