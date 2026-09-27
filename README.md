@@ -119,7 +119,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/analyst/conversations?event_id=...` - list saved analyst conversations
 - `GET /api/analyst/conversations/{conversation_id}/messages` - load questions, answers, and evidence citations
 - `GET /api/content/assets`
-- `GET /api/content/assets/{asset_id}/export?format=markdown|json|txt|html` - download a generated content asset; HTML exports are self-contained navigable slide decks that can be printed to PDF
+- `GET /api/content/assets/{asset_id}/export?format=markdown|json|txt|html|pptx` - download a generated content asset; HTML and native PPTX exports are branded slide decks, and HTML decks can be printed to PDF
 - `POST /api/content/assets/{asset_id}/publish` - approve a non-empty content asset for downstream event distribution
 - `GET /api/reports?event_id=...` - list grounded strategic reports for an event
 - `POST /api/reports/generate` - generate an evidence-linked report from selected event/session data

@@ -5,6 +5,8 @@
 # Attendee portal routes remain usable without organizer credentials.
 # Transcript edits preserve a revision trail for organizer review.
 from pathlib import Path
+from io import BytesIO
+from zipfile import ZipFile, ZIP_DEFLATED
 import re
 import uuid
 import logging
@@ -19,7 +21,7 @@ from typing import Any
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
@@ -434,7 +436,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-slide-export", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-native-pptx", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1346,14 +1348,65 @@ def _slide_deck_html(title: str, output: str, primary: str = "#7568f3", accent: 
     return f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{safe_title} · presentation</title><style>:root{{--primary:{html_escape(primary)};--accent:{html_escape(accent)};--ink:#171827;--paper:#f4f3ef}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:18px/1.55 Inter,system-ui,sans-serif}}.deck{{max-width:1180px;margin:auto;padding:24px}}header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}}.brand{{font-weight:900;letter-spacing:-.04em}}.controls{{display:flex;gap:8px}}button{{border:0;border-radius:999px;background:var(--ink);color:#fff;padding:10px 16px;font-weight:800;cursor:pointer}}button:hover{{background:var(--primary)}}.slide{{display:none;min-height:calc(100vh - 150px);border-radius:28px;padding:clamp(36px,8vw,110px);background:white;box-shadow:0 20px 70px #17182718;position:relative;overflow:hidden}}.slide.active{{display:block}}.slide:after{{content:'';position:absolute;width:360px;height:360px;border-radius:50%;right:-120px;bottom:-140px;background:var(--primary);opacity:.12}}.number{{color:var(--primary);font-weight:900;letter-spacing:.14em}}h2{{font-size:clamp(42px,7vw,92px);line-height:.98;letter-spacing:-.08em;max-width:900px;margin:26px 0 42px}}.body{{max-width:800px;font-size:clamp(20px,2.5vw,30px);color:#555a6d}}.body ul{{padding-left:1.2em}}.body li{{margin:12px 0}}footer{{padding:16px 0;color:#777;font-size:13px}}@media print{{.controls,header,footer{{display:none}}.slide,.slide.active{{display:block;page-break-after:always;min-height:100vh;box-shadow:none}}.deck{{padding:0}}}}</style></head><body><div class='deck'><header><div class='brand'>Smart Event Manager · {safe_title}</div><div class='controls'><button onclick='previousSlide()'>← Previous</button><button onclick='nextSlide()'>Next →</button><button onclick='window.print()'>Print / PDF</button></div></header><main>{''.join(slides)}</main><footer><span id='counter'></span> · Use Print / PDF to save a shareable deck.</footer></div><script>const slides=[...document.querySelectorAll('.slide')];let current=0;function show(index){{current=(index+slides.length)%slides.length;slides.forEach((slide,i)=>slide.classList.toggle('active',i===current));document.querySelector('#counter').textContent=`Slide ${{current+1}} of ${{slides.length}}`;}}function nextSlide(){{show(current+1)}}function previousSlide(){{show(current-1)}}document.addEventListener('keydown',event=>{{if(event.key==='ArrowRight')nextSlide();if(event.key==='ArrowLeft')previousSlide();}});show(0);</script></body></html>"
 
 
+def _pptx_bytes(title: str, output: str, primary: str = "7568f3") -> bytes:
+    """Create a minimal native PPTX from the same grounded outline used by HTML slides."""
+    sections: list[dict[str, list[str] | str]] = []
+    current: dict[str, list[str] | str] = {"title": title, "lines": []}
+    for raw in output.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = re.match(r"^#{1,3}\s+(.+)$", line)
+        if heading:
+            if current["lines"] or not sections:
+                sections.append(current)
+            current = {"title": heading.group(1).strip(), "lines": []}
+        else:
+            current["lines"].append(line)
+    if current["lines"] or not sections:
+        sections.append(current)
+    def esc_xml(value: object) -> str:
+        return html_escape(str(value), quote=False)
+    rgb = primary.lstrip("#")[:6].ljust(6, "7")
+    slide_xml = []
+    for index, section in enumerate(sections[:24], 1):
+        body_paragraphs = "".join(f"<a:p><a:r><a:rPr lang=\"en-US\" sz=\"2200\"/><a:t>{esc_xml(re.sub(r'^(?:[-*•]|\\d+[.)])\\s+', '• ', item))}</a:t></a:r><a:endParaRPr lang=\"en-US\"/></a:p>" for item in section["lines"][:12]) or '<a:p><a:endParaRPr lang="en-US"/></a:p>'
+        slide_xml.append(f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="10972800" cy="1371600"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="4000" b="1"/><a:t>{esc_xml(section["title"])}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="2743200"/><a:ext cx="10972800" cy="3657600"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>{body_paragraphs}</p:txBody></p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>''')
+    count = len(slide_xml)
+    content_types = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>' + ''.join(f'<Override PartName="/ppt/slides/slide{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>' for i in range(1, count + 1)) + '</Types>'
+    rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>'
+    presentation = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>{"".join(f"<p:sldId id=\"{255+i}\" r:id=\"rId{i+2}\"/>" for i in range(1, count+1))}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000" type="screen16x9"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>'
+    presentation_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>' + ''.join(f'<Relationship Id="rId{i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide{i}.xml"/>' for i in range(1, count + 1)) + '</Relationships>'
+    master = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="Master"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMap accent1="accent1" accent2="accent2" bg1="lt1" bg2="lt2" folHlink="folHlink" hlink="hlink" tx1="dk1" tx2="dk2"/><p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles/></p:sldMaster>'
+    layout = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>'
+    master_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>'
+    layout_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>'
+    theme = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Smart Event Manager"><a:themeElements><a:clrScheme name="Smart"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="171827"/></a:dk2><a:lt2><a:srgbClr val="F8F7F3"/></a:lt2><a:accent1><a:srgbClr val="' + rgb + '"/></a:accent1><a:accent2><a:srgbClr val="E4FF63"/></a:accent2></a:clrScheme><a:fontScheme name="Smart"><a:majorFont><a:latin typeface="Aptos Display"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/></a:minorFont></a:fontScheme><a:fmtScheme name="Smart"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>'
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as package:
+        package.writestr("[Content_Types].xml", content_types)
+        package.writestr("_rels/.rels", rels)
+        package.writestr("ppt/presentation.xml", presentation)
+        package.writestr("ppt/_rels/presentation.xml.rels", presentation_rels)
+        package.writestr("ppt/slideMasters/slideMaster1.xml", master)
+        package.writestr("ppt/slideMasters/_rels/slideMaster1.xml.rels", master_rels)
+        package.writestr("ppt/slideLayouts/slideLayout1.xml", layout)
+        package.writestr("ppt/slideLayouts/_rels/slideLayout1.xml.rels", layout_rels)
+        package.writestr("ppt/theme/theme1.xml", theme)
+        for index, slide in enumerate(slide_xml, 1):
+            package.writestr(f"ppt/slides/slide{index}.xml", slide)
+            package.writestr(f"ppt/slides/_rels/slide{index}.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>')
+    return buffer.getvalue()
+
+
 @app.get(f"{settings.api_prefix}/content/assets/{{asset_id}}/export", response_model=None)
 def export_content_asset(asset_id: str, format: str = "markdown"):
     asset = next((row for row in list_items("generated_assets") if row.get("id") == asset_id), None)
     if not asset:
         raise HTTPException(status_code=404, detail="Content asset not found")
     normalized = format.lower()
-    if normalized not in {"markdown", "json", "txt", "html"}:
-        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, txt, or html")
+    if normalized not in {"markdown", "json", "txt", "html", "pptx"}:
+        raise HTTPException(status_code=400, detail="Asset export format must be markdown, json, txt, html, or pptx")
     content = asset.get("content") if isinstance(asset.get("content"), dict) else {"output": asset.get("content", "")}
     title = asset.get("title") or "Generated event asset"
     safe_name = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "event-asset"
@@ -1366,6 +1419,10 @@ def export_content_asset(asset_id: str, format: str = "markdown"):
         event = next((row for row in list_items("events") if row.get("id") == asset.get("event_id")), {})
         brand = get_brand_kit(event.get("organization_id") or "org-demo")
         return PlainTextResponse(_slide_deck_html(title, output, brand.get("primary_color", "#7568f3"), brand.get("accent_color", "#e4ff63")), media_type="text/html", headers=headers)
+    if normalized == "pptx":
+        event = next((row for row in list_items("events") if row.get("id") == asset.get("event_id")), {})
+        brand = get_brand_kit(event.get("organization_id") or "org-demo")
+        return Response(content=_pptx_bytes(title, output, brand.get("primary_color", "#7568f3")), media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", headers=headers)
     if normalized == "txt":
         return PlainTextResponse(output, media_type="text/plain", headers=headers)
     body = f"# {title}\n\n- **Type:** {asset.get('asset_type', 'content')}\n- **Status:** {asset.get('status', 'draft')}\n\n{output}\n"
