@@ -177,7 +177,7 @@ async function mountSpeakers() {
   try {
     const speakers = await api(`/api/speakers?organization_id=${encodeURIComponent(state.data?.event?.organization_id || '')}`);
     const list = document.querySelector('#speaker-list');
-    if (list) list.innerHTML = speakers.length ? speakers.map(item => `<article class="insight"><span class="kind">${esc(item.title || 'Speaker')}${item.company ? ` · ${esc(item.company)}` : ''}</span><strong>${esc(item.name)}</strong><p>${esc(item.biography || 'Profile ready to connect to sessions.')}</p>${item.profile_url ? `<a href="${esc(item.profile_url)}" target="_blank" rel="noreferrer">Profile ↗</a>` : ''}<button class="btn ghost" data-action="delete-speaker" data-speaker-id="${esc(item.id)}">Remove</button></article>`).join('') : '<span class="muted">No speaker profiles yet. Add the first voice for this event.</span>';
+    if (list) list.innerHTML = speakers.length ? speakers.map(item => { const sessionOptions = (state.data?.sessions || []).map(session => `<option value="${esc(session.id)}">${esc(session.title)}</option>`).join(''); return `<article class="insight"><span class="kind">${esc(item.title || 'Speaker')}${item.company ? ` · ${esc(item.company)}` : ''}</span><strong>${esc(item.name)}</strong><p>${esc(item.biography || 'Profile ready to connect to sessions.')}</p>${item.profile_url ? `<a href="${esc(item.profile_url)}" target="_blank" rel="noreferrer">Profile ↗</a>` : ''}<div class="actions-row"><select data-speaker-session="${esc(item.id)}" aria-label="Session for ${esc(item.name)}">${sessionOptions || '<option value="">No sessions yet</option>'}</select><button class="btn ghost" data-action="assign-speaker" data-speaker-id="${esc(item.id)}">Assign</button><button class="btn ghost" data-action="delete-speaker" data-speaker-id="${esc(item.id)}">Remove</button></div></article>`; }).join('') : '<span class="muted">No speaker profiles yet. Add the first voice for this event.</span>';
   } catch (error) { const list = document.querySelector('#speaker-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 const originalViewRender = render;
@@ -950,10 +950,16 @@ async function mountSessionShareLinks() {
   } catch (error) { const list = document.querySelector('#session-share-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-action="add-speaker"], [data-action="delete-speaker"]');
+  const button = event.target.closest('[data-action="add-speaker"], [data-action="assign-speaker"], [data-action="delete-speaker"]');
   if (!button) return;
   event.preventDefault();
   if (button.dataset.action === 'add-speaker') return document.querySelector('#speaker-create-form input[name="name"]')?.focus();
+  if (button.dataset.action === 'assign-speaker') {
+    const sessionId = document.querySelector(`[data-speaker-session="${button.dataset.speakerId}"]`)?.value;
+    if (!sessionId) return notify('Create a session before assigning a speaker');
+    try { await api(`/api/sessions/${encodeURIComponent(sessionId)}/speakers`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({speaker_id:button.dataset.speakerId})}); notify('Speaker assigned to session'); } catch (error) { notify(error.message); }
+    return;
+  }
   try {
     await api(`/api/speakers/${encodeURIComponent(button.dataset.speakerId)}`, {method:'DELETE'});
     state.view = 'speakers';
