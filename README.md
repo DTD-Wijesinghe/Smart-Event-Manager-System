@@ -76,6 +76,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `POST /api/auth/refresh`
 - `POST /api/auth/reset-password` - complete a Supabase recovery-link password update with the recovery bearer token
 - `GET /api/dashboard`
+- `POST /api/onboarding/bootstrap` — idempotently create an organizer-owned starter workspace, event, session, and attendee share link after registration
 - `GET`, `POST`, `PATCH /api/organizations` — manage organization identity and defaults
 - `GET`, `PUT /api/integrations/{provider}` — manage provider connection status without exposing secrets
 - `GET /api/admin/overview` — super-admin platform and job health summary
@@ -147,7 +148,7 @@ For a ready-to-view workspace after the migration, optionally run `supabase/seed
 
 The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, analyst conversations and messages, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.
 
-Organizer APIs require a valid session. Public attendee routes remain available from a share link. Mutating organizer routes are role checked: `super_admin`, `organization_admin`, and `event_organizer` can operate the event workspace; `content_editor` can create and edit content/report outputs; speaker and attendee roles are read/public oriented.
+Organizer APIs require a valid session. Public attendee routes remain available from a share link. Mutating organizer routes are role checked: `super_admin`, `organization_admin`, and `event_organizer` can operate the event workspace; `content_editor` can create and edit content/report outputs; speaker and attendee roles are read/public oriented. Supabase onboarding additionally requires the server-only `SUPABASE_SERVICE_ROLE_KEY`; it is never exposed to the browser.
 
 AI authentication supports two server-side options: set `GEMINI_API_KEY` for
 Gemini Developer API access, or set `GCP_PROJECT` plus

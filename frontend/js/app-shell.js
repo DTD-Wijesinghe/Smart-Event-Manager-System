@@ -118,6 +118,10 @@ async function load() {
 async function openWorkspace(message) {
   try {
     state.data = await api('/api/dashboard');
+    if (!state.data?.event) {
+      await api('/api/onboarding/bootstrap', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({organization_name:'My event team', event_name:'My first event'})});
+      state.data = await api('/api/dashboard');
+    }
     state.view = 'overview';
     render();
     notify(message);

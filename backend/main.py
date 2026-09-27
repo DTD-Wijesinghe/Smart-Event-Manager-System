@@ -261,6 +261,13 @@ class OrganizationRequest(BaseModel):
     preferred_language: str = "en"
 
 
+class OnboardingRequest(BaseModel):
+    organization_name: str = "My event team"
+    event_name: str = "My first event"
+    venue: str = ""
+    timezone: str = "UTC"
+
+
 class IntegrationRequest(BaseModel):
     organization_id: str = "org-demo"
     provider: str = ""
@@ -527,6 +534,74 @@ def reset_password(request: ResetPasswordRequest, authorization: str | None = He
 
 @app.get(f"{settings.api_prefix}/dashboard")
 def get_dashboard(event_id: str | None = None) -> dict: return dashboard(event_id)
+
+
+def _supabase_user_from_authorization(authorization: str | None) -> dict:
+    if not authorization or not settings.supabase_url or not settings.supabase_anon_key:
+        return {}
+    response = httpx.get(
+        f"{settings.supabase_url}/auth/v1/user",
+        headers={"apikey": settings.supabase_anon_key, "Authorization": authorization},
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=401, detail="Organizer session is invalid or expired")
+    return response.json()
+
+
+def _supabase_rest_insert(table: str, payload: dict) -> dict:
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        raise HTTPException(status_code=503, detail="Supabase service-role configuration is required for workspace setup")
+    response = httpx.post(
+        f"{settings.supabase_url}/rest/v1/{table}",
+        headers={"apikey": settings.supabase_service_role_key, "Authorization": f"Bearer {settings.supabase_service_role_key}", "Content-Type": "application/json", "Prefer": "return=representation"},
+        json=payload,
+        timeout=20,
+    )
+    if not response.is_success:
+        detail = response.json().get("message") if response.headers.get("content-type", "").startswith("application/json") else response.text
+        raise HTTPException(status_code=502, detail=f"Supabase could not create {table}: {detail or 'request failed'}")
+    rows = response.json()
+    return rows[0] if rows else payload
+
+
+@app.post(f"{settings.api_prefix}/onboarding/bootstrap", status_code=201)
+def bootstrap_workspace(request: OnboardingRequest, authorization: str | None = Header(default=None)) -> dict:
+    """Create an organizer-owned starter workspace once, then return its portal link."""
+    organization_name = request.organization_name.strip() or "My event team"
+    event_name = request.event_name.strip() or "My first event"
+    if not settings.supabase_url:
+        existing_event = next(iter(list_items("events")), None)
+        if existing_event:
+            return dashboard(existing_event.get("id"))
+        organization = create_organization({"name": organization_name, "timezone": request.timezone})
+        event = create_event({"organization_id": organization["id"], "name": event_name, "venue": request.venue, "status": "draft", "brand_color": "#7568f3"})
+        session = create_session({"event_id": event["id"], "title": "Opening session", "track": "Main stage", "room": request.venue or "Main room"})
+        link = ensure_share_link(event["id"], session["id"])
+        return {"created": True, "organization": organization, "event": event, "session": session, "share_links": [link]}
+
+    user = _supabase_user_from_authorization(authorization)
+    user_id = user.get("id")
+    email = (user.get("email") or "").strip().lower()
+    if not user_id or not email:
+        raise HTTPException(status_code=401, detail="Authenticated organizer identity is required")
+    service_headers = {"apikey": settings.supabase_service_role_key, "Authorization": f"Bearer {settings.supabase_service_role_key}"}
+    members = httpx.get(f"{settings.supabase_url}/rest/v1/organization_members?user_id=eq.{user_id}&status=eq.active&select=organization_id,role&limit=1", headers=service_headers, timeout=20)
+    if members.is_success and members.json():
+        organization_id = members.json()[0].get("organization_id")
+        events = httpx.get(f"{settings.supabase_url}/rest/v1/events?organization_id=eq.{organization_id}&select=*&order=created_at.asc&limit=1", headers=service_headers, timeout=20)
+        if events.is_success and events.json():
+            return dashboard(events.json()[0].get("id"))
+    profile = httpx.get(f"{settings.supabase_url}/rest/v1/profiles?id=eq.{user_id}&select=id&limit=1", headers=service_headers, timeout=20)
+    if profile.is_success and not profile.json():
+        _supabase_rest_insert("profiles", {"id": user_id, "email": email, "full_name": email.split("@", 1)[0]})
+    slug_base = re.sub(r"[^a-z0-9]+", "-", organization_name.lower()).strip("-") or "event-team"
+    organization = _supabase_rest_insert("organizations", {"name": organization_name, "slug": f"{slug_base}-{uuid.uuid4().hex[:8]}", "timezone": request.timezone})
+    _supabase_rest_insert("organization_members", {"organization_id": organization["id"], "user_id": user_id, "role": "organization_admin", "status": "active"})
+    event = _supabase_rest_insert("events", {"organization_id": organization["id"], "title": event_name, "venue": request.venue, "status": "draft", "created_by": user_id})
+    session = _supabase_rest_insert("sessions", {"event_id": event["id"], "title": "Opening session", "track": "Main stage", "room": request.venue or "Main room", "status": "scheduled"})
+    share = _supabase_rest_insert("share_links", {"event_id": event["id"], "session_id": session["id"], "label": "Attendee portal", "token": f"{organization['slug']}-live", "destination": f"/attendee/{organization['slug']}", "clicks": 0})
+    return {"created": True, "organization": organization, "event": {**event, "name": event.get("name") or event.get("title")}, "session": session, "share_links": [share]}
 
 
 @app.get(f"{settings.api_prefix}/organizations")

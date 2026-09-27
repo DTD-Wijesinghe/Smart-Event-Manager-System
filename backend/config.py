@@ -26,7 +26,8 @@ class Settings:
     live_model = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.5-transcribe-live")
     supabase_url = os.getenv("SUPABASE_URL", "")
     supabase_anon_key = os.getenv("SUPABASE_ANON_KEY", "")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_ANON_KEY", "")
+    supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    supabase_key = supabase_service_role_key or supabase_anon_key
     data_dir = Path(os.getenv("DATA_DIR", str(ROOT_DIR / "data")))
     max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "20"))
     demo_session_secret = os.getenv("DEMO_SESSION_SECRET", "smart-event-manager-demo-session-v1")
