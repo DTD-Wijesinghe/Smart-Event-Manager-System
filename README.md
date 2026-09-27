@@ -27,8 +27,9 @@ smart-event-manager-app/
 ## Run locally
 
 ```powershell
-python -m pip install -r backend\requirements.txt
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+.venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Then open `http://127.0.0.1:8000/`.
@@ -55,23 +56,40 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 ## API surface
 
 - `GET /api/health`
+- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/forgot-password`
 - `GET /api/dashboard`
 - `GET /api/sessions`
 - `POST /api/sessions`
+- `GET /api/events`
+- `POST /api/events`
+- `PATCH /api/events/{event_id}`
 - `GET /api/attendees`
 - `GET /api/insights`
 - `GET /api/share-links`
+- `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
 - `GET /api/transcripts`
 - `POST /api/capture/text` — save a live text chunk from a browser, venue bridge, or meeting bot
+- `GET /api/questions?session_id=...`
+- `POST /api/questions` and `POST /api/questions/{question_id}/votes`
+- `GET /api/polls?session_id=...`, `POST /api/polls`, and `POST /api/poll-responses`
+- `POST /api/feedback`
+- `GET /api/analytics?event_id=...`
+- `GET /api/content/assets`
+- `POST /api/content/generate` — generate and save a content asset in one request
 - `POST /api/ai/summarize`
+- `POST /api/ai/translate`
 - `POST /api/transcription/batch`
 
 ## Snapsight-style event workflow
 
-1. Capture: connect a venue mixer to the operator laptop, upload a recording, or send live text chunks to `/api/capture/text`.
+1. Capture: connect a venue mixer to the operator laptop, record from the browser microphone, upload a recording, or send live text chunks to `/api/capture/text`.
 2. Understand: use batch transcription, live transcript, language selection, and Gemini summaries to turn the source into takeaways.
 3. Distribute: show the event QR/link so attendees can open the browser portal without installing an app.
 4. Remix: use the Content Studio to prepare executive briefs, attendee recaps, speaker packs, and social-ready moments.
 5. Prove value: use sessions, attendee signals, insights, share-link clicks, and reports to show what resonated.
 
-For the Supabase-backed workspace, run `supabase/schema.sql` in the Supabase SQL Editor before enabling the service-role variables. The public landing page and demo capture flow remain usable while the database is unavailable.
+For the Supabase-backed workspace, run `supabase/production_schema.sql` in the Supabase SQL Editor before enabling the service-role variables. The public landing page and demo capture flow remain usable while the database is unavailable. The API lets Supabase generate UUIDs for persisted rows, while the local demo store keeps its readable IDs.
+
+For a ready-to-view workspace after the migration, optionally run `supabase/seed_demo.sql` next. It creates the sample organization, event, session, insight, and attendee portal link without storing credentials.
+
+The expanded production data model is in `supabase/production_schema.sql`. It adds organizations, roles, events, sessions, speakers, transcript segments, translations, takeaways, topics, summaries, attendees, Q&A, polls, feedback, brand kits, generated assets, processing jobs, and audit logs. Apply it only after reviewing the migration against the current database.

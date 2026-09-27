@@ -19,6 +19,12 @@ def summarize(text: str, target_language: str = "English") -> dict:
     return {"model": settings.text_model, "targetLanguage": target_language, "output": response.text or ""}
 
 
+def translate(text: str, target_language: str = "English") -> dict:
+    prompt = f"Translate the following event transcript into {target_language}. Preserve the meaning, speaker tone, and paragraph breaks. Return only the translation.\n\n{text[:120000]}"
+    response = client().models.generate_content(model=settings.text_model, contents=prompt)
+    return {"model": settings.text_model, "targetLanguage": target_language, "output": response.text or ""}
+
+
 def transcribe(audio: bytes, mime_type: str = "audio/webm", language_codes: list[str] | None = None) -> dict:
     if len(audio) > 20 * 1024 * 1024:
         raise ValueError("Inline audio is limited to 20 MB")

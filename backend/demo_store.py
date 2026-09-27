@@ -11,6 +11,13 @@ demo_store = {
     "insights": [{"id": "ins-001", "event_id": "evt-001", "session_id": "ses-001", "kind": "theme", "title": "Collective response is the new advantage", "body": "Across 68 live signals, attendees connected resilience with shared rituals, not isolated prediction.", "confidence": .94, "created_at": "2026-09-26T09:35:00Z"}],
     "share_links": [{"id": "lnk-001", "event_id": "evt-001", "label": "Attendee portal", "token": "gff-live", "destination": "/attendee/global-futures-forum", "clicks": 428}],
     "transcripts": [],
+    "questions": [],
+    "question_votes": [],
+    "polls": [],
+    "poll_options": [],
+    "poll_responses": [],
+    "feedback": [],
+    "generated_assets": [],
 }
 
 

@@ -6,6 +6,7 @@ const esc = (value = '') => String(value).replace(/[&<>"']/g, ch => ({ '&':'&amp
 const date = iso => new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 const money = num => new Intl.NumberFormat('en', { notation:'compact', maximumFractionDigits:1 }).format(num);
 function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2600); }
+function downloadCsv(filename, rows) { const source=rows||[]; if(!source.length)return notify('There is no data to export yet'); const keys=[...new Set(source.flatMap(row=>Object.keys(row)))]; const quote=value=>`"${String(Array.isArray(value)?value.join('; '):value??'').replaceAll('"','""')}"`; const content=[keys.join(','),...source.map(row=>keys.map(key=>quote(row[key])).join(','))].join('\n'); const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'})); const link=document.createElement('a'); link.href=url; link.download=filename; link.click(); URL.revokeObjectURL(url); notify(`${filename} downloaded`); }
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -17,9 +18,21 @@ async function api(path, options) {
 async function load() {
   // Render the public landing page immediately. The marketing page must not
   // disappear just because the organizer data/API is temporarily unavailable.
+  state.authenticated = Boolean(localStorage.getItem('smart-event-session'));
+  // Do not render a data-dependent organizer view until the dashboard has
+  // arrived; the first render must remain safe on a cold page load.
+  state.view = 'landing';
   render();
   try {
     state.data = await api('/api/dashboard');
+    const shareToken = new URLSearchParams(location.search).get('share');
+    if (shareToken) {
+      const shared = await api(`/api/public/share/${encodeURIComponent(shareToken)}`);
+      state.data = {...state.data, event: shared.event || state.data.event, sessions: shared.sessions || state.data.sessions, share_links: [shared.link]};
+      state.view = 'attendee';
+    } else if (state.authenticated) {
+      state.view = 'overview';
+    }
     if (state.view !== 'landing') render();
   } catch (error) {
     if (state.view !== 'landing') {
@@ -59,9 +72,16 @@ function authForm(kind='login') { const config={login:['Welcome back','Log in to
 function render() { const views = { landing, overview, sessions, attendees, content, connect, attendee, screen, transcript, auth }; app.innerHTML = views[state.view](); const fullBleed = ['landing','auth','attendee','screen','transcript'].includes(state.view); document.body.classList.toggle('marketing', fullBleed); document.body.classList.toggle('workspace-view', !fullBleed); document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===state.view)); if(state.view==='auth'){const wrap=document.querySelector('#auth-form-wrap');wrap.innerHTML=authForm(state.authMode);document.querySelectorAll('[data-auth-tab]').forEach(tab=>tab.addEventListener('click',()=>{state.authMode=tab.dataset.authTab;document.querySelectorAll('[data-auth-tab]').forEach(x=>x.classList.toggle('active',x===tab));wrap.innerHTML=authForm(state.authMode)}));} }
 function modal() { if (document.querySelector('.modal-backdrop')) return; document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal"><div class="eyebrow">Add to the live program</div><h2>Create a session</h2><p>New sessions are saved to the local demo store, or directly to Supabase when your environment keys are configured.</p><form class="form-grid" id="session-form"><label>Session title<input name="title" required placeholder="e.g. Designing for the next decade"/></label><label>Track<select name="track"><option>Main stage</option><option>Leadership</option><option>Growth</option></select></label><label>Speaker<input name="speaker" placeholder="Name · Company"/></label><label>Room<input name="room" placeholder="Room 101"/></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn lime">Create session</button></div></form></div></div>`); }
 document.addEventListener('click', async e => { const nav=e.target.closest('.nav-item'); if(nav){state.view=nav.dataset.view;render();return} const viewLink=e.target.closest('[data-view-link]'); if(viewLink){e.preventDefault();const next=viewLink.dataset.viewLink;if(next==='auth'){if(state.authenticated){state.view='overview'}else{state.authMode=viewLink.dataset.authMode || 'login';state.view='auth'}}else{state.view=next}render();return} const action=e.target.closest('[data-action]')?.dataset.action; if(!action)return; if(action==='forgot-inline'){const box=document.querySelector('.forgot-inline');if(box){box.hidden=!box.hidden;e.target.textContent=box.hidden?'Forgot password?':'Hide password reset';}return} if(action==='send-reset'){notify('If the email exists, a reset link is on its way');return} if(action==='add-session'){modal();return} if(action==='close-modal'){document.querySelector('.modal-backdrop')?.remove();return} if(action==='copy-link'){await navigator.clipboard?.writeText(document.querySelector('#share-link')?.value || `${location.origin}/attendee/global-futures-forum`);notify('Attendee link copied to clipboard');return} if(action==='copy-embed'){await navigator.clipboard?.writeText(`<iframe src="${location.origin}/attendee/global-futures-forum" title="Global Futures Forum attendee portal"></iframe>`);notify('Embed code copied');return} if(action==='share-social'){notify('Social share card prepared — copy the event link to post it');return} if(action==='generate'){try{const source=(state.data?.insights||[]).map(item=>item.title+': '+item.body).join('\n') || 'No transcript is available yet. Explain how an event team should prepare useful post-event takeaways.';const result=await api('/api/ai/summarize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:source,targetLanguage:'English'})});notify(`Gemini generated a ${result.model} content brief`)}catch(error){notify(error.message.includes('GEMINI_API_KEY')?'Add GEMINI_API_KEY to the server environment first':error.message)}return} if(action==='match'){notify('Finding high-intent attendee matches');return} if(action==='export'){notify('Export prepared for download');return} if(action==='library'){state.view='content';render();notify('Signal library opened');return} if(action==='share'){state.view='connect';render();return} });
-document.addEventListener('submit', async e => { if(e.target.id==='session-form'){e.preventDefault(); const payload=Object.fromEntries(new FormData(e.target)); await api('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); document.querySelector('.modal-backdrop')?.remove(); state.data=await api('/api/dashboard'); state.view='sessions'; render(); notify('Session added to the program'); return;} if(e.target.id==='login-form'){e.preventDefault();state.authenticated=true;await openWorkspace('Welcome back — organizer workspace ready');return} if(e.target.id==='register-form'){e.preventDefault();const f=new FormData(e.target);if(f.get('password')!==f.get('confirm')){notify('Passwords do not match');return}state.authenticated=true;await openWorkspace('Workspace created — welcome to Smart Event Manager');return} if(e.target.id==='forgot-form'){e.preventDefault();notify('If the email exists, a reset link is on its way');return} });
+document.addEventListener('submit', async e => { if(e.target.id==='session-form'){e.preventDefault(); const payload=Object.fromEntries(new FormData(e.target)); await api('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); document.querySelector('.modal-backdrop')?.remove(); state.data=await api('/api/dashboard'); state.view='sessions'; render(); notify('Session added to the program'); return;} if(e.target.id==='login-form'){e.preventDefault();state.authenticated=true;await openWorkspace('Welcome back - organizer workspace ready');return} if(e.target.id==='register-form'){e.preventDefault();const f=new FormData(e.target);if(f.get('password')!==f.get('confirm')){notify('Passwords do not match');return}state.authenticated=true;await openWorkspace('Workspace created - welcome to Smart Event Manager');return} if(e.target.id==='forgot-form'){e.preventDefault();notify('If the email exists, a reset link is on its way');return} });
+// Auth is handled by the backend/Supabase Auth. The capture-phase listener
+// keeps the existing UI and prevents the old demo-only submit handler below
+// from marking a user authenticated before the server accepts the request.
+document.addEventListener('click', async e => { const action=e.target.closest('[data-action="send-reset"]')?.dataset.action; if(action!=='send-reset')return; e.preventDefault(); e.stopImmediatePropagation(); const email=document.querySelector('input[name="resetEmail"]')?.value || document.querySelector('#login-form input[name="email"]')?.value; if(!email)return notify('Enter your email address first'); try{await api('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});notify('If the email exists, a reset link is on its way')}catch(error){notify(error.message)} }, true);
+document.addEventListener('submit', async e => { const form=e.target; if(!['login-form','register-form','forgot-form'].includes(form.id))return; e.preventDefault(); e.stopImmediatePropagation(); const fields=Object.fromEntries(new FormData(form)); try { if(form.id==='register-form' && fields.password!==fields.confirm) throw new Error('Passwords do not match'); const endpoint=form.id==='login-form'?'/api/auth/login':form.id==='register-form'?'/api/auth/register':'/api/auth/forgot-password'; const payload=form.id==='forgot-form'?{email:fields.email}:{email:fields.email,password:fields.password}; const result=await api(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); if(form.id==='forgot-form'){notify('If the email exists, a reset link is on its way');return} state.authenticated=true; localStorage.setItem('smart-event-session',JSON.stringify(result.session||{})); await openWorkspace(form.id==='login-form'?'Welcome back - organizer workspace ready':'Workspace created - welcome to Smart Event Manager'); } catch(error){notify(error.message)} }, true);
 document.querySelector('#mobileMenu').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
+document.addEventListener('change', async e => { const selector=e.target.closest('.transcript-toolbar select'); if(!selector)return; const language=(selector.value||'English').split(' ')[0]; if(language==='English')return notify('Original English transcript selected'); const source=[...document.querySelectorAll('.transcript-card p')].map(item=>item.textContent).join('\n'); const status=document.querySelector('#translation-status'); if(status)status.textContent='Translating…'; try{const result=await api('/api/ai/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:source,targetLanguage:language})}); let output=document.querySelector('.translation-output'); if(!output){document.querySelector('.transcript-card')?.insertAdjacentHTML('afterbegin','<div class="translation-output insight"></div>');output=document.querySelector('.translation-output')} output.innerHTML=`<span class="kind">${esc(result.targetLanguage)} translation</span><p>${esc(result.output)}</p>`; if(status)status.textContent=result.mode==='fallback'?'Local preview':'Live'; }catch(error){if(status)status.textContent=error.message} });
 load();
+document.addEventListener('click', e => { const button=e.target.closest('[data-action="export"]'); if(!button)return; e.preventDefault(); e.stopImmediatePropagation(); const rows=state.view==='attendees'?state.data?.attendees:state.data?.sessions; downloadCsv(`${state.view}-export.csv`,rows); }, true);
 
 // Capture is intentionally mounted as a workflow overlay so it remains usable
 // even while the organizer dashboard is waiting for Supabase data.
@@ -90,17 +110,72 @@ document.addEventListener('click', async e => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       window.__captureStream = stream;
+      if (!window.MediaRecorder) return notify('Audio recording is unavailable in this browser');
+      const chunks = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+      recorder.onstop = async () => {
+        const status = document.querySelector('#capture-status');
+        if (!chunks.length) return notify('No audio was captured');
+        if (status) status.textContent = 'Transcribing';
+        try {
+          const form = new FormData();
+          form.append('file', new Blob(chunks, {type: recorder.mimeType || 'audio/webm'}), 'live-capture.webm');
+          form.append('session_id', 'ses-001');
+          form.append('language', 'auto');
+          const result = await api('/api/transcription/batch', {method:'POST', body:form});
+          state.data = await api('/api/dashboard');
+          if (status) status.textContent = 'Transcribed';
+          notify(`Audio transcribed with ${result.model || 'the configured model'}`);
+        } catch (error) {
+          if (status) status.textContent = 'Capture failed';
+          notify(error.message);
+        }
+      };
+      window.__captureRecorder = recorder;
+      recorder.start(1000);
       document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
       document.querySelector('[data-capture-action="stop"]').disabled = false;
-      notify('Microphone connected — use the live text bridge to save a verified capture');
+      notify('Microphone connected — recording live audio');
     } catch (_) { notify('Microphone permission was not granted'); }
   } else if (captureAction === 'stop') {
+    if (window.__captureRecorder?.state === 'recording') window.__captureRecorder.stop();
     window.__captureStream?.getTracks().forEach(track => track.stop());
-    document.querySelector('#capture-status').textContent = 'Idle';
+    document.querySelector('#capture-status').textContent = 'Processing';
     document.querySelector('[data-capture-action="start"]').disabled = false;
     document.querySelector('[data-capture-action="stop"]').disabled = true;
-    notify('Microphone stopped');
+    notify('Microphone stopped — processing the recording');
+  }
+}, true);
+
+function mountAttendeeInteractions() {
+  if (document.querySelector('.attendee-interactions')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-interactions"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Ask the room</h2><p>Share a question with the organizer. You can stay anonymous.</p><form id="question-form"><textarea name="body" rows="3" required placeholder="What would you like the speaker to answer?"></textarea><label class="check-row"><input type="checkbox" name="anonymous" checked> Ask anonymously</label><button class="btn lime">Submit question ↗</button></form><div id="question-status" class="muted"></div></div><div class="attendee-interaction-card"><div class="eyebrow">Close the loop</div><h2>Rate this session</h2><p>Your feedback helps the event team improve the next room.</p><form id="feedback-form"><div class="rating-row"><label>Speaker<select name="speaker_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label><label>Content<select name="content_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label></div><textarea name="comment" rows="3" placeholder="Optional feedback"></textarea><button class="btn purple">Send feedback ↗</button></form></div></section>`);
+}
+function mountTranscriptData() {
+  if (state.view !== 'transcript') return;
+  const rows = state.data?.transcripts || [];
+  if (!rows.length) return;
+  const card = document.querySelector('.transcript-card');
+  if (!card) return;
+  card.innerHTML = rows.slice(0, 24).reverse().map((row, index) => `<div class="transcript-line ${index === rows.length - 1 ? 'active' : ''}"><span>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : 'LIVE'}</span><p>${esc(row.text || '')}</p><small class="muted">${esc(row.speaker || 'Live speaker')} · ${esc(row.language || 'auto')}</small></div>`).join('');
+}
+const baseRender = render;
+render = function wrappedRender() { baseRender(); if (state.view === 'attendee') mountAttendeeInteractions(); mountTranscriptData(); };
+document.addEventListener('submit', async e => {
+  if (e.target.id === 'question-form') {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    try { await api('/api/questions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({body:form.get('body'), anonymous:form.get('anonymous') === 'on', session_id:'ses-001'})}); e.target.reset(); document.querySelector('#question-status').textContent = 'Question submitted for organizer review.'; notify('Question submitted'); }
+    catch (error) { notify(error.message); }
+  }
+  if (e.target.id === 'feedback-form') {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const value = name => form.get(name) ? Number(form.get(name)) : null;
+    try { await api('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:'ses-001', speaker_rating:value('speaker_rating'), content_rating:value('content_rating'), session_rating:value('content_rating'), comment:form.get('comment')})}); e.target.reset(); notify('Feedback saved — thank you'); }
+    catch (error) { notify(error.message); }
   }
 }, true);
 
@@ -110,6 +185,7 @@ document.addEventListener('submit', async e => {
     const form = new FormData(e.target);
     try {
       await api('/api/capture/text', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({text: form.get('text'), speaker: form.get('speaker'), language: form.get('language')}) });
+      state.data = await api('/api/dashboard');
       e.target.reset();
       notify('Live capture saved to the event stream');
     } catch (error) { notify(error.message); }
@@ -119,6 +195,7 @@ document.addEventListener('submit', async e => {
     const form = new FormData(e.target);
     try {
       const result = await api('/api/transcription/batch', { method: 'POST', body: form });
+      state.data = await api('/api/dashboard');
       notify(`Recording transcribed with ${result.model || 'the configured model'}`);
     } catch (error) { notify(error.message); }
   }
@@ -146,6 +223,29 @@ window.addEventListener('popstate', () => {
   }
 });
 
+// The public portal URL carries the share token so opening a QR code or an
+// embedded WebView loads the same event data and records the portal visit.
+connect = function() {
+  const d = state.data;
+  const token = d.share_links?.[0]?.token || 'gff-live';
+  const link = `${location.origin}${location.pathname}?share=${encodeURIComponent(token)}#attendee`;
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(link)}`;
+  return `${head('Distribution layer', 'Share & connect', 'Give every audience a doorway into the event — on stage, in the app, or in the follow-up email.', '<button class="btn lime" data-action="copy-link">Copy attendee link</button>')}<div class="grid connect-grid"><section class="card share-card"><h3>Attendee portal</h3><p>One clean destination for live takeaways, session details, questions, and post-event content.</p><div class="link-row"><input readonly value="${link}" id="share-link"/><button class="btn ghost" data-action="copy-link">Copy</button></div><div class="qr-wrap"><img class="qr-image" src="${qr}" alt="QR code for attendee portal"/><small>Place this QR on badges, screens, print, and speaker slides.<br><br><strong>${d.share_links?.[0]?.clicks || 0} portal opens</strong> from the current link.</small></div><div class="actions-row"><a class="btn" href="${link}">Open attendee portal ↗</a><button class="btn ghost" data-view-link="screen">Big-screen mode</button></div></section><section class="card share-card"><h3>Connected workflow</h3><p>Keep the event ecosystem moving with simple handoffs.</p><div class="insight"><span class="kind">LIVE DATA</span><strong>Supabase-ready data layer</strong><p>Events, sessions, attendees, insights, and share links are modeled for a direct database connection.</p></div><div class="insight"><span class="kind">EMBED KIT</span><strong>Put it inside your own app</strong><p>Use the portal URL inside an iframe, WebView, QR badge, email CTA, or event app deep link.</p></div><div class="actions-row"><button class="btn ghost" data-view-link="transcript">Live transcript</button><button class="btn ghost" data-action="copy-embed">Copy embed code</button></div></section></div>`;
+};
+
+const organizerViews = new Set(['overview', 'capture', 'sessions', 'attendees', 'content', 'connect', 'transcript', 'screen']);
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-view-link]');
+  const next = link?.dataset.viewLink;
+  if (!link || !organizerViews.has(next) || state.authenticated) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  state.authMode = 'login';
+  state.view = 'auth';
+  render();
+  notify('Organizer login required');
+}, true);
+
 function showGeneratedContent(result) {
   document.querySelector('.generated-output')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop generated-output"><div class="modal generated-modal"><div class="eyebrow">${result.mode === 'fallback' ? 'Local content preview' : 'Gemini content intelligence'}</div><h2>Generated content</h2><p class="muted">${result.mode === 'fallback' ? 'The local preview is ready. Add valid Vertex credentials to replace it with Gemini output.' : `Generated with ${esc(result.model || 'Gemini')}.`}</p><pre>${esc(result.output || 'No content was returned.')}</pre><div class="modal-actions"><button class="btn lime" data-action="close-generated">Done</button></div></div></div>`);
@@ -158,7 +258,7 @@ document.addEventListener('click', async e => {
     const source = (state.data?.insights || []).map(item => `${item.title}: ${item.body}`).join('\n') || 'No transcript is available yet. Explain how an event team should prepare useful post-event takeaways.';
     generate.disabled = true;
     try {
-      const result = await api('/api/ai/summarize', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source,targetLanguage:'English'})});
+      const result = await api('/api/content/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source,targetLanguage:'English',asset_type:'attendee_recap',title:'Attendee recap'})});
       showGeneratedContent(result);
     } catch (error) { notify(error.message); }
     finally { generate.disabled = false; }
