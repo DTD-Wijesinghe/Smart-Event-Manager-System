@@ -21,6 +21,12 @@ create table if not exists public.organization_members (
   status text not null default 'active' check (status in ('invited','active','suspended')),
   created_at timestamptz not null default now(), primary key (organization_id, user_id)
 );
+create table if not exists public.invitations (
+  id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
+  email text not null, role text not null check (role in ('organization_admin','event_organizer','content_editor','speaker','attendee')),
+  status text not null default 'invited' check (status in ('invited','accepted','expired','revoked')),
+  token text unique not null, expires_at timestamptz default (now() + interval '7 days'), created_at timestamptz not null default now()
+);
 create table if not exists public.events (
   id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
   title text not null, slug text not null, description text, starts_at timestamptz not null, ends_at timestamptz not null,
@@ -164,6 +170,7 @@ create trigger jobs_updated_at before update on public.processing_jobs for each 
 alter table public.organizations enable row level security;
 alter table public.profiles enable row level security;
 alter table public.organization_members enable row level security;
+alter table public.invitations enable row level security;
 alter table public.events enable row level security;
 alter table public.sessions enable row level security;
 alter table public.speakers enable row level security;

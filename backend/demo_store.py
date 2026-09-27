@@ -1,6 +1,15 @@
 from datetime import datetime, timezone
 
 demo_store = {
+    "organizations": [{"id": "org-demo", "name": "Atelier Events", "slug": "atelier-events", "timezone": "Asia/Singapore", "preferred_language": "en"}],
+    "profiles": [{"id": "user-leila", "full_name": "Leila Morgan", "email": "leila@atelier.events"}, {"id": "user-maya", "full_name": "Maya Chen", "email": "maya@future.systems"}, {"id": "user-jon", "full_name": "Jon Bell", "email": "jon@patternlabs.com"}],
+    "organization_members": [
+        {"id": "member-leila", "organization_id": "org-demo", "user_id": "user-leila", "full_name": "Leila Morgan", "email": "leila@atelier.events", "role": "organization_admin", "status": "active", "created_at": "2026-09-01T08:00:00Z"},
+        {"id": "member-maya", "organization_id": "org-demo", "user_id": "user-maya", "full_name": "Maya Chen", "email": "maya@future.systems", "role": "content_editor", "status": "active", "created_at": "2026-09-05T08:00:00Z"},
+        {"id": "member-jon", "organization_id": "org-demo", "user_id": "user-jon", "full_name": "Jon Bell", "email": "jon@patternlabs.com", "role": "speaker", "status": "active", "created_at": "2026-09-08T08:00:00Z"},
+    ],
+    "invitations": [],
+    "brand_kits": [{"id": "brand-demo", "organization_id": "org-demo", "name": "Atelier Events", "logo_url": "", "primary_color": "#7568f3", "secondary_color": "#1b1c2d", "accent_color": "#e4ff63", "font_family": "Inter", "tone": "clear, generous, modern", "website": "https://atelier.events", "created_at": "2026-09-01T08:00:00Z"}],
     "events": [{"id": "evt-001", "name": "Global Futures Forum", "slug": "global-futures-forum", "venue": "Marina Bay Sands · Singapore", "starts_at": "2026-09-26T08:30:00Z", "ends_at": "2026-09-26T16:30:00Z", "status": "live", "brand_color": "#7568f3"}],
     "sessions": [
         {"id": "ses-001", "event_id": "evt-001", "title": "Designing for what’s next", "track": "Main stage", "room": "Auditorium 1", "speaker": "Maya Chen · Future Systems", "starts_at": "2026-09-26T09:00:00Z", "ends_at": "2026-09-26T09:45:00Z", "status": "live", "attendance": 1842, "sentiment": .91, "summary": "The most resilient organizations build the habit of responding together."},
@@ -23,6 +32,7 @@ demo_store = {
     "poll_responses": [],
     "feedback": [],
     "generated_assets": [],
+    "takeaways": [],
 }
 
 

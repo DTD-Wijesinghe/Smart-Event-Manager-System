@@ -3,7 +3,7 @@ import re
 from .config import settings
 from .demo_store import demo_store, utc_now
 
-TABLES = {"events", "sessions", "attendees", "insights", "share_links", "transcripts", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets"}
+TABLES = {"organizations", "profiles", "organization_members", "invitations", "brand_kits", "events", "sessions", "attendees", "insights", "share_links", "transcripts", "takeaways", "questions", "question_votes", "polls", "poll_options", "poll_responses", "feedback", "generated_assets"}
 
 
 def storage_mode() -> str:
@@ -63,6 +63,21 @@ def attendee_matches(attendee_id: str) -> list[dict]:
     return sorted(matches, key=lambda item: item["match_score"], reverse=True)
 
 
+def set_attendee_checkin(attendee_id: str, checked_in: bool) -> dict:
+    attendee = next((item for item in demo_store["attendees"] if item.get("id") == attendee_id), None)
+    if not attendee:
+        raise KeyError("Attendee not found")
+    attendee["checked_in"] = checked_in
+    if storage_mode() == "supabase" and not str(attendee_id).startswith("att-"):
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/attendees?id=eq.{attendee_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json={"checked_in": checked_in}, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return _normalize_row("attendees", rows[0])
+    return attendee
+
+
 def get_share_link(token: str) -> dict | None:
     """Resolve an attendee portal token and increment its public view count."""
     links = list_items("share_links")
@@ -89,10 +104,30 @@ def get_share_link(token: str) -> dict | None:
     return {"link": link, "event": event or (events[0] if events else None), "sessions": sessions}
 
 
-def dashboard() -> dict:
+def ensure_share_link(event_id: str) -> dict:
+    events = list_items("events")
+    event = next((item for item in events if item.get("id") == event_id), None)
+    if not event:
+        raise KeyError("Event not found")
+    existing = next((item for item in list_items("share_links") if item.get("event_id") == event_id), None)
+    if existing:
+        return existing
+    slug = str(event.get("slug") or event_id).strip().lower()
+    token = f"{re.sub(r'[^a-z0-9]+', '-', slug).strip('-')}-live"
+    item = {"id": f"lnk-{len(demo_store['share_links']) + 1:03d}", "event_id": event_id, "label": "Attendee portal", "token": token, "destination": f"/attendee/{slug}", "clicks": 0, "created_at": utc_now()}
+    return _create_item("share_links", item)
+
+
+def dashboard(event_id: str | None = None) -> dict:
     events, sessions, attendees, insights, share_links, transcripts = [list_items(name) for name in ("events", "sessions", "attendees", "insights", "share_links", "transcripts")]
-    event_id = events[0].get("id", "evt-001") if events else "evt-001"
-    return {"event": events[0] if events else None, "sessions": sessions, "attendees": attendees, "insights": insights, "share_links": share_links, "transcripts": transcripts, "analytics": analytics(event_id), "mode": storage_mode()}
+    event = next((item for item in events if item.get("id") == event_id), None) if event_id else None
+    event = event or (events[0] if events else None)
+    selected_id = event.get("id", "evt-001") if event else (event_id or "evt-001")
+    scoped = lambda rows: [item for item in rows if not item.get("event_id") or item.get("event_id") == selected_id]
+    selected_links = scoped(share_links)
+    if event:
+        selected_links = [ensure_share_link(selected_id)]
+    return {"event": event, "sessions": scoped(sessions), "attendees": scoped(attendees), "insights": scoped(insights), "share_links": selected_links, "transcripts": scoped(transcripts), "analytics": analytics(selected_id), "mode": storage_mode()}
 
 
 def _remote_insert(table: str, item: dict) -> dict | None:
@@ -202,6 +237,13 @@ def _create_item(table: str, item: dict) -> dict:
             remote_item = {key: value for key, value in item.items() if key not in {"id", "name"}}
             remote_item["title"] = item.get("name") or item.get("title") or "New event"
             return _remote_insert("events", remote_item) or item
+        if table == "invitations":
+            remote_item = {key: item[key] for key in ("organization_id", "email", "role", "status", "token") if item.get(key) is not None}
+            response = httpx.post(f"{settings.supabase_url}/rest/v1/invitations", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=remote_item, timeout=20)
+            if response.status_code == 404: return item
+            response.raise_for_status()
+            rows = response.json()
+            return _normalize_row("invitations", rows[0]) if rows else item
         if table == "sessions":
             remote_item = {key: item[key] for key in ("event_id", "title", "starts_at", "ends_at", "room", "track") if item.get(key) is not None}
             remote_item["status"] = "scheduled" if item.get("status") == "upcoming" else item.get("status", "scheduled")
@@ -251,6 +293,73 @@ def create_event(payload: dict) -> dict:
     number = len(demo_store["events"]) + 1
     item = {"id": f"evt-{number:03d}", "organization_id": payload.get("organization_id"), "name": payload.get("name") or payload.get("title") or "New event", "slug": payload.get("slug") or f"event-{number:03d}", "venue": payload.get("venue", ""), "starts_at": payload.get("starts_at") or utc_now(), "ends_at": payload.get("ends_at") or utc_now(), "status": payload.get("status", "draft"), "brand_color": payload.get("brand_color", "#7568f3")}
     return _create_item("events", item)
+
+
+def team_workspace(organization_id: str | None = None) -> dict:
+    organization_id = organization_id or "org-demo"
+    members = [item for item in list_items("organization_members") if item.get("organization_id") == organization_id]
+    invitations = [item for item in list_items("invitations") if item.get("organization_id") == organization_id]
+    if storage_mode() == "supabase" and not members:
+        members = demo_store["organization_members"] if organization_id == "org-demo" else []
+    return {"organization_id": organization_id, "members": members, "invitations": invitations}
+
+
+def get_brand_kit(organization_id: str | None = None) -> dict:
+    organization_id = organization_id or "org-demo"
+    kit = next((item for item in list_items("brand_kits") if item.get("organization_id") == organization_id), None)
+    return kit or {"id": None, "organization_id": organization_id, "name": "Default brand", "logo_url": "", "primary_color": "#7568f3", "secondary_color": "#1b1c2d", "accent_color": "#e4ff63", "font_family": "Inter", "tone": "clear, generous, modern", "website": ""}
+
+
+def upsert_brand_kit(payload: dict) -> dict:
+    organization_id = payload.get("organization_id") or "org-demo"
+    kit = get_brand_kit(organization_id)
+    fields = ("name", "logo_url", "primary_color", "secondary_color", "accent_color", "font_family", "tone", "website")
+    values = {key: str(payload.get(key, kit.get(key, ""))).strip() for key in fields}
+    if kit.get("id"):
+        kit.update(values)
+        if storage_mode() == "supabase" and not str(kit["id"]).startswith("brand-"):
+            response = httpx.patch(f"{settings.supabase_url}/rest/v1/brand_kits?id=eq.{kit['id']}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=values, timeout=20)
+            if response.status_code != 404:
+                response.raise_for_status()
+                rows = response.json()
+                if rows: return rows[0]
+        return kit
+    return _create_item("brand_kits", {"id": f"brand-{len(demo_store['brand_kits']) + 1:03d}", "organization_id": organization_id, **values, "created_at": utc_now()})
+
+
+def create_invitation(payload: dict) -> dict:
+    allowed_roles = {"organization_admin", "event_organizer", "content_editor", "speaker", "attendee"}
+    role = payload.get("role", "event_organizer")
+    if role not in allowed_roles:
+        raise ValueError("Unsupported team role")
+    email = str(payload.get("email", "")).strip().lower()
+    if not email or "@" not in email:
+        raise ValueError("A valid invite email is required")
+    organization_id = payload.get("organization_id") or "org-demo"
+    item = {"id": f"invite-{len(demo_store['invitations']) + 1:03d}", "organization_id": organization_id, "email": email, "role": role, "status": "invited", "token": f"invite-token-{len(demo_store['invitations']) + 1:03d}", "created_at": utc_now()}
+    return _create_item("invitations", item)
+
+
+def update_team_member(member_id: str, role: str | None = None, status: str | None = None) -> dict:
+    allowed_roles = {"organization_admin", "event_organizer", "content_editor", "speaker", "attendee"}
+    allowed_statuses = {"active", "invited", "suspended"}
+    if role is not None and role not in allowed_roles:
+        raise ValueError("Unsupported team role")
+    if status is not None and status not in allowed_statuses:
+        raise ValueError("Unsupported member status")
+    member = next((item for item in list_items("organization_members") if item.get("id") == member_id or item.get("user_id") == member_id), None)
+    if not member:
+        raise KeyError("Team member not found")
+    if role is not None: member["role"] = role
+    if status is not None: member["status"] = status
+    if storage_mode() == "supabase" and member.get("organization_id") and member.get("user_id"):
+        remote = {key: value for key, value in (("role", role), ("status", status)) if value is not None}
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/organization_members?organization_id=eq.{member['organization_id']}&user_id=eq.{member['user_id']}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=remote, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows: return _normalize_row("organization_members", rows[0])
+    return member
 
 
 def delete_event(event_id: str) -> dict:
@@ -306,6 +415,27 @@ def vote_question(question_id: str, voter_id: str = "anonymous") -> dict:
     return question
 
 
+def moderate_question(question_id: str, status: str | None = None, pinned: bool | None = None) -> dict:
+    if status is not None and status not in {"pending", "approved", "answered", "dismissed"}:
+        raise ValueError("Unsupported question status")
+    question = next((item for item in demo_store["questions"] if item.get("id") == question_id), None)
+    if not question:
+        raise KeyError("Question not found")
+    if status is not None:
+        question["status"] = status
+    if pinned is not None:
+        question["pinned"] = pinned
+    if storage_mode() == "supabase" and not str(question_id).startswith("q-"):
+        remote = {key: value for key, value in (("status", status), ("pinned", pinned)) if value is not None}
+        response = httpx.patch(f"{settings.supabase_url}/rest/v1/questions?id=eq.{question_id}", headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"}, json=remote, timeout=20)
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return _normalize_row("questions", rows[0])
+    return question
+
+
 def create_poll(payload: dict) -> dict:
     number = len(demo_store["polls"]) + 1
     _, session_id = _default_foreign_keys(payload)
@@ -314,6 +444,29 @@ def create_poll(payload: dict) -> dict:
     for index, label in enumerate(payload.get("options", [])):
         _create_item("poll_options", {"id": f"{saved['id']}-opt-{index + 1}", "poll_id": saved["id"], "label": label, "sort_order": index})
     return saved
+
+
+def update_poll(poll_id: str, is_open: bool | None = None) -> dict:
+    if is_open is None:
+        raise ValueError("is_open is required")
+    polls = list_items("polls")
+    poll = next((item for item in polls if item.get("id") == poll_id), None)
+    if not poll:
+        raise KeyError("Poll not found")
+    poll["is_open"] = bool(is_open)
+    if storage_mode() == "supabase" and poll_id and not str(poll_id).startswith("poll-"):
+        response = httpx.patch(
+            f"{settings.supabase_url}/rest/v1/polls?id=eq.{poll_id}",
+            headers={**_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
+            json={"is_open": bool(is_open)},
+            timeout=20,
+        )
+        if response.status_code != 404:
+            response.raise_for_status()
+            rows = response.json()
+            if rows:
+                return _normalize_row("polls", rows[0])
+    return poll
 
 
 def respond_poll(payload: dict) -> dict:
@@ -330,6 +483,13 @@ def create_generated_asset(payload: dict) -> dict:
     event_id, session_id = _default_foreign_keys(payload)
     item = {"id": f"asset-{len(demo_store['generated_assets']) + 1:03d}", "event_id": event_id, "session_id": session_id, "asset_type": payload.get("asset_type", "attendee_recap"), "title": payload.get("title", "Generated event asset"), "content": payload.get("content", {}), "status": payload.get("status", "draft"), "created_at": utc_now()}
     return _create_item("generated_assets", item)
+
+
+def create_takeaway(payload: dict) -> dict:
+    event_id, session_id = _default_foreign_keys(payload)
+    evidence = payload.get("evidence") or []
+    item = {"id": f"takeaway-{len(demo_store['takeaways']) + 1:03d}", "event_id": event_id, "session_id": session_id, "title": payload.get("title") or "Event takeaway", "body": payload.get("body", "").strip(), "confidence": payload.get("confidence", .85), "evidence": evidence, "created_at": utc_now()}
+    return _create_item("takeaways", item)
 
 
 def analytics(event_id: str = "evt-001") -> dict:

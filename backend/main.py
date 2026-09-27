@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from .config import FRONTEND_DIR, settings
-from .repository import analytics, attendee_matches, create_event, create_feedback, create_generated_asset, create_insight, create_poll, create_question, create_session, create_transcript, dashboard, delete_event, delete_session, duplicate_session, get_share_link, list_items, respond_poll, search_knowledge, set_session_status, storage_mode, topic_cloud, update_event, update_session, vote_question
+from .repository import analytics, attendee_matches, create_event, create_feedback, create_generated_asset, create_insight, create_invitation, create_poll, create_question, create_session, create_takeaway, create_transcript, dashboard, delete_event, delete_session, duplicate_session, ensure_share_link, get_brand_kit, get_share_link, list_items, moderate_question, respond_poll, search_knowledge, set_attendee_checkin, set_session_status, storage_mode, team_workspace, topic_cloud, update_event, update_poll, update_session, update_team_member, upsert_brand_kit, vote_question
 from .vertex_ai import analyst_answer, summarize, transcribe, translate
 
 
@@ -34,8 +34,17 @@ class QuestionRequest(BaseModel):
     anonymous: bool = False
 
 
+class QuestionModerationRequest(BaseModel):
+    status: str | None = None
+    pinned: bool | None = None
+
+
 class VoteRequest(BaseModel):
     voter_id: str = "anonymous"
+
+
+class CheckInRequest(BaseModel):
+    checked_in: bool
 
 
 class PollRequest(BaseModel):
@@ -43,6 +52,10 @@ class PollRequest(BaseModel):
     session_id: str = "ses-001"
     poll_type: str = "single"
     options: list[str] = []
+
+
+class PollUpdateRequest(BaseModel):
+    is_open: bool | None = None
 
 
 class PollResponseRequest(BaseModel):
@@ -71,6 +84,14 @@ class ContentGenerateRequest(BaseModel):
     session_id: str | None = None
 
 
+class TakeawayGenerateRequest(BaseModel):
+    text: str = ""
+    targetLanguage: str = "English"
+    event_id: str | None = None
+    session_id: str | None = None
+    title: str = "Event takeaway"
+
+
 class AuthRequest(BaseModel):
     email: str
     password: str
@@ -86,6 +107,29 @@ class RefreshRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     password: str
+
+
+class InvitationRequest(BaseModel):
+    email: str
+    role: str = "event_organizer"
+    organization_id: str = "org-demo"
+
+
+class TeamMemberUpdateRequest(BaseModel):
+    role: str | None = None
+    status: str | None = None
+
+
+class BrandKitRequest(BaseModel):
+    organization_id: str = "org-demo"
+    name: str = "Default brand"
+    logo_url: str = ""
+    primary_color: str = "#7568f3"
+    secondary_color: str = "#1b1c2d"
+    accent_color: str = "#e4ff63"
+    font_family: str = "Inter"
+    tone: str = "clear, generous, modern"
+    website: str = ""
 
 
 class AnalystRequest(BaseModel):
@@ -183,7 +227,7 @@ def reset_password(request: ResetPasswordRequest, authorization: str | None = He
 
 
 @app.get(f"{settings.api_prefix}/dashboard")
-def get_dashboard() -> dict: return dashboard()
+def get_dashboard(event_id: str | None = None) -> dict: return dashboard(event_id)
 
 
 @app.get(f"{settings.api_prefix}/sessions")
@@ -228,6 +272,35 @@ def stop_session(session_id: str) -> dict:
 def get_events() -> list[dict]: return list_items("events")
 
 
+@app.get(f"{settings.api_prefix}/team")
+def get_team(organization_id: str | None = None) -> dict: return team_workspace(organization_id)
+
+
+@app.post(f"{settings.api_prefix}/team/invitations", status_code=201)
+def invite_team_member(request: InvitationRequest) -> dict:
+    try: return create_invitation(request.model_dump())
+    except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch(f"{settings.api_prefix}/team/members/{{member_id}}")
+def edit_team_member(member_id: str, request: TeamMemberUpdateRequest) -> dict:
+    try: return update_team_member(member_id, request.role, request.status)
+    except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/brand-kit")
+def get_brand(organization_id: str | None = None) -> dict: return get_brand_kit(organization_id)
+
+
+@app.put(f"{settings.api_prefix}/brand-kit")
+def save_brand(request: BrandKitRequest) -> dict:
+    for value in (request.primary_color, request.secondary_color, request.accent_color):
+        if value and (not value.startswith("#") or len(value) not in {4, 7}):
+            raise HTTPException(status_code=400, detail="Brand colors must be valid hex values")
+    return upsert_brand_kit(request.model_dump())
+
+
 @app.post(f"{settings.api_prefix}/events", status_code=201)
 def add_event(payload: dict) -> dict: return create_event(payload)
 
@@ -252,12 +325,22 @@ def get_attendees() -> list[dict]: return list_items("attendees")
 def get_attendee_matches(attendee_id: str) -> list[dict]: return attendee_matches(attendee_id)
 
 
+@app.post(f"{settings.api_prefix}/attendees/{{attendee_id}}/check-in")
+def check_in_attendee(attendee_id: str, request: CheckInRequest) -> dict:
+    try: return set_attendee_checkin(attendee_id, request.checked_in)
+    except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get(f"{settings.api_prefix}/insights")
 def get_insights() -> list[dict]: return list_items("insights")
 
 
 @app.get(f"{settings.api_prefix}/share-links")
-def get_share_links() -> list[dict]: return list_items("share_links")
+def get_share_links(event_id: str | None = None) -> list[dict]:
+    if event_id:
+        try: return [ensure_share_link(event_id)]
+        except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return list_items("share_links")
 
 
 @app.get(f"{settings.api_prefix}/public/share/{{token}}")
@@ -313,6 +396,13 @@ def add_question_vote(question_id: str, request: VoteRequest) -> dict:
     except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.patch(f"{settings.api_prefix}/questions/{{question_id}}")
+def moderate_question_route(question_id: str, request: QuestionModerationRequest) -> dict:
+    try: return moderate_question(question_id, request.status, request.pinned)
+    except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get(f"{settings.api_prefix}/polls")
 def get_polls(session_id: str | None = None) -> list[dict]:
     polls = list_items("polls")
@@ -327,11 +417,20 @@ def add_poll(request: PollRequest) -> dict:
     return create_poll(request.model_dump())
 
 
+@app.patch(f"{settings.api_prefix}/polls/{{poll_id}}")
+def update_poll_route(poll_id: str, request: PollUpdateRequest) -> dict:
+    try: return update_poll(poll_id, request.is_open)
+    except KeyError as exc: raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc: raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post(f"{settings.api_prefix}/poll-responses", status_code=201)
 def add_poll_response(request: PollResponseRequest) -> dict:
     poll = next((item for item in list_items("polls") if item.get("id") == request.poll_id), None)
     if not poll:
         raise HTTPException(status_code=404, detail="Poll not found")
+    if not poll.get("is_open"):
+        raise HTTPException(status_code=409, detail="This poll is closed")
     selected = request.option_ids or ([request.option_id] if request.option_id else [])
     valid_options = {item.get("id") for item in list_items("poll_options") if item.get("poll_id") == request.poll_id}
     if any(option_id not in valid_options for option_id in selected):
@@ -386,6 +485,28 @@ def ask_analyst(request: AnalystRequest) -> dict:
 def get_generated_assets(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
     assets = list_items("generated_assets")
     return [asset for asset in assets if (not event_id or asset.get("event_id") == event_id) and (not session_id or asset.get("session_id") == session_id)]
+
+
+@app.get(f"{settings.api_prefix}/takeaways")
+def get_takeaways(event_id: str | None = None, session_id: str | None = None) -> list[dict]:
+    rows = list_items("takeaways")
+    return [row for row in rows if (not event_id or row.get("event_id") == event_id) and (not session_id or row.get("session_id") == session_id)]
+
+
+@app.post(f"{settings.api_prefix}/takeaways/generate", status_code=201)
+def generate_takeaway(request: TakeawayGenerateRequest) -> dict:
+    source_rows = [row for row in (list_items("transcripts") + list_items("insights")) if (not request.event_id or row.get("event_id") == request.event_id) and (not request.session_id or row.get("session_id") == request.session_id)]
+    source = request.text.strip() or "\n".join(row.get("text") or f"{row.get('title', '')}: {row.get('body', '')}" for row in source_rows)
+    if len(source.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Capture more event evidence before generating a takeaway")
+    try:
+        result = summarize(source, request.targetLanguage)
+        mode = "ai"
+    except Exception:
+        result = {"model": "local-fallback", "targetLanguage": request.targetLanguage, "output": f"Key takeaway\n{source[:360]}\n\nNext action\nReview this signal with the event team and turn it into an approved follow-up."}
+        mode = "fallback"
+    takeaway = create_takeaway({"event_id": request.event_id, "session_id": request.session_id, "title": request.title, "body": result.get("output", ""), "confidence": .9 if mode == "ai" else .72, "evidence": [{"id": row.get("id"), "session_id": row.get("session_id")} for row in source_rows[:12]]})
+    return {"mode": mode, "takeaway": takeaway, "model": result.get("model"), "targetLanguage": request.targetLanguage}
 
 
 @app.post(f"{settings.api_prefix}/content/generate", status_code=201)

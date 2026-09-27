@@ -25,7 +25,7 @@
   <div class="shell">
     <aside class="sidebar">
       <a class="brand" href="#overview"><span class="logo"><i></i></span><span>smart event<br><b>manager</b></span></a>
-      <div class="event-switcher"><span class="pulse"></span><div><small>LIVE EVENT</small><strong>Global Futures Forum</strong></div><span class="chevron">⌄</span></div>
+      <div class="event-switcher" role="button" tabindex="0" data-action="manage-event" title="Manage event"><span class="pulse"></span><div><small>LIVE EVENT</small><strong data-event-name>Global Futures Forum</strong></div><span class="chevron">⌄</span></div>
       <nav class="nav" aria-label="Workspace navigation">
         <button class="nav-item active" data-view="overview"><span>◈</span> Overview</button>
         <button class="nav-item capture-launch" data-view="capture"><span>◉</span> Capture</button>
@@ -34,10 +34,10 @@
         <button class="nav-item" data-view="content"><span>✦</span> Content studio</button>
         <button class="nav-item" data-view="connect"><span>⌁</span> Share & connect</button>
       </nav>
-      <div class="sidebar-bottom"><div class="workspace-card"><span class="mini-logo">✦</span><div><small>WORKSPACE</small><strong>Atelier Events</strong></div><span>⋮</span></div><div class="profile"><span class="avatar">LM</span><div><strong>Leila Morgan</strong><small>Event director</small></div><span class="chevron">⌄</span></div></div>
+      <div class="sidebar-bottom"><div class="workspace-card" role="button" tabindex="0" data-action="manage-team" title="Manage workspace team"><span class="mini-logo">✦</span><div><small>WORKSPACE</small><strong>Atelier Events</strong></div><span>⋮</span></div><div class="profile"><span class="avatar">LM</span><div><strong>Leila Morgan</strong><small>Event director</small></div><span class="chevron">⌄</span></div></div>
     </aside>
     <main class="main">
-      <header class="topbar"><button class="mobile-menu" id="mobileMenu">☰</button><div class="crumb"><span>Workspace</span><b>/</b><strong>Global Futures Forum</strong></div><div class="top-actions"><span class="status"><i></i> All systems ready</span><button class="auth-link" data-view-link="auth">Organizer login</button><button class="icon-btn" title="Notifications">♧<em>3</em></button><button class="help-btn">?</button></div></header>
+      <header class="topbar"><button class="mobile-menu" id="mobileMenu">☰</button><div class="crumb"><span>Workspace</span><b>/</b><strong data-event-name>Global Futures Forum</strong></div><div class="top-actions"><span class="status"><i></i> All systems ready</span><button class="auth-link" data-view-link="auth">Organizer login</button><button class="icon-btn" title="Notifications">♧<em>3</em></button><button class="help-btn">?</button></div></header>
       <div class="page" id="app"></div>
     </main>
   </div>
