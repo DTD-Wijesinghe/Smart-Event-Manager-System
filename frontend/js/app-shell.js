@@ -21,6 +21,14 @@ function globalSearchModal() {
   document.body.insertAdjacentHTML('beforeend', '<div class="modal-backdrop"><div class="modal search-modal"><div class="eyebrow">Event knowledge</div><h2>Search captured intelligence</h2><p>Search sessions, transcripts, takeaways, questions, summaries, reports, and generated content.</p><form id="global-search-form" class="search-form"><input name="query" type="search" minlength="2" required placeholder="Try sustainability, next action, or a speaker name" autofocus><button class="btn purple">Search ↗</button></form><div id="global-search-results" class="insight-list"><span class="muted">Enter at least two characters to search this event.</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button></div></div></div>');
   document.querySelector('#global-search-form input')?.focus();
 }
+const baseGlobalSearchModal = globalSearchModal;
+globalSearchModal = function filteredGlobalSearchModal() {
+  baseGlobalSearchModal();
+  const form = document.querySelector('#global-search-form');
+  if (!form) return;
+  const sessions = (state.data?.sessions || []).map(session => `<option value="${esc(session.id)}">${esc(session.title || session.id)}</option>`).join('');
+  form.insertAdjacentHTML('afterbegin', `<div class="capture-form-row search-filters"><select name="source_type" aria-label="Filter evidence type"><option value="">All evidence</option><option value="transcript">Transcripts</option><option value="insight">Insights</option><option value="takeaway">Takeaways</option><option value="summary">Summaries</option><option value="asset">Content assets</option><option value="report">Reports</option></select><select name="session_id" aria-label="Filter session"><option value="">All sessions</option>${sessions}</select><input name="speaker" placeholder="Speaker filter" aria-label="Filter speaker"></div>`);
+};
 document.addEventListener('click', event => {
   if (!event.target.closest('[data-action="global-search"]')) return;
   event.preventDefault();
@@ -33,10 +41,13 @@ document.addEventListener('submit', async event => {
   event.preventDefault();
   event.stopImmediatePropagation();
   const output = document.querySelector('#global-search-results');
-  const query = new FormData(form).get('query');
+    const fields = new FormData(form);
+    const query = fields.get('query');
   if (output) output.innerHTML = '<span class="muted">Searching event evidence…</span>';
   try {
-    const results = await api(`/api/search?query=${encodeURIComponent(query)}&event_id=${encodeURIComponent(state.data?.event?.id || '')}`);
+    const params = new URLSearchParams({query, event_id: state.data?.event?.id || ''});
+    ['source_type', 'session_id', 'speaker'].forEach(key => { const value = String(fields.get(key) || '').trim(); if (value) params.set(key, value); });
+    const results = await api(`/api/search?${params.toString()}`);
     if (!results.length) { if (output) output.innerHTML = '<span class="muted">No matching event evidence found.</span>'; return; }
     if (output) output.innerHTML = results.map(item => `<article class="insight search-result"><span class="kind">${esc(item.type)} · score ${esc(item.score)}</span><strong>${esc(item.title || 'Event evidence')}</strong><p>${esc(item.snippet || '')}</p><small class="muted">${esc(item.session_title || 'Event-wide')} ${item.speaker ? `· ${esc(item.speaker)}` : ''}</small>${item.session_id ? `<button type="button" class="btn ghost" data-action="open-search-result" data-session-id="${esc(item.session_id)}">Open session ↗</button>` : ''}</article>`).join('');
   } catch (error) { if (output) output.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }

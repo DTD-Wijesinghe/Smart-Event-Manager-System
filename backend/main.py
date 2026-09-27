@@ -436,7 +436,7 @@ async def _websocket_authenticated(websocket: WebSocket) -> bool:
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
     vertex_ready = bool(settings.project and ((settings.credentials_path and Path(settings.credentials_path).exists()) or settings.credentials_json))
-    return {"ok": True, "build": "20260928-office-exports", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
+    return {"ok": True, "build": "20260928-filtered-search", "mode": storage_mode(), "vertexConfigured": vertex_ready, "geminiConfigured": bool(settings.gemini_api_key), "aiConfigured": vertex_ready or bool(settings.gemini_api_key), "storageConfigured": bool(settings.supabase_url and settings.supabase_storage_key), "storageBucket": settings.supabase_storage_bucket if settings.supabase_url and settings.supabase_storage_key else None, "project": settings.project or None, "models": {"text": settings.text_model, "batch": settings.batch_model, "live": settings.live_model}}
 
 
 def _auth_headers() -> dict[str, str]:
@@ -1257,11 +1257,11 @@ def get_event_intelligence(event_id: str | None = None) -> dict:
 
 
 @app.get(f"{settings.api_prefix}/search")
-def search(query: str, event_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+def search(query: str, event_id: str | None = None, session_id: str | None = None, speaker: str | None = None, source_type: str | None = None, language: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
     if len(query.strip()) < 2:
         raise HTTPException(status_code=400, detail="Search query must be at least two characters")
     _require_portal_access(authorization, share_token, event_id=event_id)
-    return search_knowledge(query, event_id)
+    return search_knowledge(query, event_id, session_id=session_id, speaker=speaker, source_type=source_type, language=language)
 
 
 @app.get(f"{settings.api_prefix}/topics")

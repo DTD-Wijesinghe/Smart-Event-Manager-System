@@ -113,7 +113,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `POST /api/feedback`
 - `GET /api/analytics?event_id=...`
 - `GET /api/intelligence?event_id=...` - evidence-linked event-wide themes and cross-session relationships
-- `GET /api/search?query=...&event_id=...` - search sessions, transcripts, insights, and generated assets
+- `GET /api/search?query=...&event_id=...&session_id=...&speaker=...&source_type=...&language=...` - search event evidence with metadata filters
 - `GET /api/topics?event_id=...&session_id=...` - build an evidence-backed topic cloud
 - `POST /api/analyst/ask` - answer an event-grounded question with source citations and persist the conversation turn
 - `GET /api/analyst/conversations?event_id=...` - list saved analyst conversations

@@ -982,7 +982,7 @@ def event_intelligence(event_id: str | None = None) -> dict:
     return {"event": event, "mode": "grounded-local", "sessions": session_intelligence, "themes": topics, "cross_session_themes": cross_session[:20], "takeaways": takeaways[:20], "insights": insights[:20], "questions": question_themes[:50], "source_counts": {"sessions": len(sessions), "transcripts": len(transcripts), "insights": len(insights), "takeaways": len(takeaways), "questions": len(questions)}}
 
 
-def search_knowledge(query: str, event_id: str | None = None) -> list[dict]:
+def search_knowledge(query: str, event_id: str | None = None, session_id: str | None = None, speaker: str | None = None, source_type: str | None = None, language: str | None = None) -> list[dict]:
     """Search normalized event evidence and return traceable, ranked results.
 
     This is the provider-neutral retrieval layer used before Gemini. It keeps
@@ -1007,8 +1007,16 @@ def search_knowledge(query: str, event_id: str | None = None) -> list[dict]:
     ]
     results: list[dict] = []
     for kind, rows in collections:
+        if source_type and kind != source_type:
+            continue
         for row in rows:
             if event_id and row.get("event_id") and row.get("event_id") != event_id:
+                continue
+            if session_id and (row.get("session_id") or row.get("id")) != session_id:
+                continue
+            if speaker and speaker.lower() not in str(row.get("speaker") or row.get("name") or "").lower():
+                continue
+            if language and language.lower() not in str(row.get("language") or "").lower():
                 continue
             searchable = " ".join(str(row.get(key, "")) for key in ("title", "name", "text", "body", "summary", "content", "asset_type")).lower()
             score = sum(1 for term in terms if term in searchable)
