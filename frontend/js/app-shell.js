@@ -451,7 +451,7 @@ document.addEventListener('click', e => { const button=e.target.closest('[data-a
 // Capture is intentionally mounted as a workflow overlay so it remains usable
 // even while the organizer dashboard is waiting for Supabase data.
 function captureView() { return `${head('Live content engine', 'Capture the room', 'Connect an audio source, upload a recording, or paste a live text chunk. Every capture becomes searchable event intelligence.', '<span class="badge orange">● READY TO CAPTURE</span>')}
-<div class="capture-grid"><section class="card capture-card"><div class="capture-card-top"><div><span class="capture-icon">◉</span><h2>Live capture</h2><p>Use your laptop microphone or mixer feed. This browser capture is ideal for a quick test; production audio can come from your venue mixer or meeting bot.</p></div><span class="capture-status" id="capture-status">Idle</span></div><div class="capture-controls"><button class="btn lime" data-capture-action="start">Start microphone</button><button class="btn ghost" data-capture-action="stop" disabled>Stop</button></div><div class="capture-meter"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><small class="muted">Use headphones and ask the speaker for consent before capturing.</small></section>
+<div class="capture-grid"><section class="card capture-card"><div class="capture-card-top"><div><span class="capture-icon">◉</span><h2>Live capture</h2><p>Use your laptop microphone or mixer feed. This browser capture is ideal for a quick test; production audio can come from your venue mixer or meeting bot.</p></div><span class="capture-status" id="capture-status">Idle</span></div><div class="capture-controls"><button class="btn lime" data-capture-action="start">Start microphone</button><button class="btn ghost" data-capture-action="pause" disabled>Pause</button><button class="btn ghost" data-capture-action="resume" disabled>Resume</button><button class="btn ghost" data-capture-action="mute" disabled>Mute</button><button class="btn ghost" data-capture-action="stop" disabled>Stop</button></div><div class="capture-meter"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><small class="muted">Use headphones and ask the speaker for consent before capturing.</small></section>
 <section class="card capture-card"><div class="capture-card-top"><div><span class="capture-icon">↥</span><h2>Upload a recording</h2><p>Upload audio, video, or an existing TXT/SRT/VTT transcript. The file is validated, queued, and processed as a background job.</p></div></div><form id="upload-form" class="upload-form"><label class="upload-drop"><input type="file" name="file" accept="audio/*,video/mp4,video/quicktime,text/plain,.srt,.vtt" required><strong>Choose a recording or transcript</strong><span>Up to 20 MB · queued processing with status tracking</span></label><select name="language"><option value="auto">Detect language</option><option>English</option><option>Tamil</option><option>Spanish</option><option>French</option><option>Japanese</option></select><button class="btn purple">Queue transcription ↗</button></form><div id="upload-status" class="muted" aria-live="polite"></div></section></div>
 <section class="card section-card capture-text-card"><div class="card-head"><div><h2>Live text bridge</h2><p class="muted">Use this to test the end-to-end flow before connecting a venue mixer or meeting integration.</p></div><span class="badge">No app required for attendees</span></div><form id="capture-form" class="capture-form"><textarea name="text" rows="4" required placeholder="Paste a short live excerpt, for example: Our biggest opportunity is making the next action obvious for every attendee."></textarea><div class="capture-form-row"><input name="speaker" placeholder="Speaker name (optional)" value="Live speaker"><select name="language"><option value="auto">Auto language</option><option>English</option><option>Tamil</option><option>Spanish</option><option>French</option></select><button class="btn lime">Add live capture</button></div></form></section>`; }
 
@@ -502,15 +502,48 @@ document.addEventListener('click', async e => {
       await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/start`, {method:'POST'}).catch(() => null);
       document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
+      document.querySelector('[data-capture-action="pause"]').disabled = false;
+      document.querySelector('[data-capture-action="resume"]').disabled = true;
+      document.querySelector('[data-capture-action="mute"]').disabled = false;
       document.querySelector('[data-capture-action="stop"]').disabled = false;
       notify('Microphone connected — recording live audio');
     } catch (_) { notify('Microphone permission was not granted'); }
+  } else if (captureAction === 'pause') {
+    const recorder = window.__captureRecorder;
+    if (recorder?.state === 'recording') {
+      recorder.pause();
+      document.querySelector('#capture-status').textContent = 'Paused';
+      document.querySelector('[data-capture-action="pause"]').disabled = true;
+      document.querySelector('[data-capture-action="resume"]').disabled = false;
+      notify('Capture paused');
+    }
+  } else if (captureAction === 'resume') {
+    const recorder = window.__captureRecorder;
+    if (recorder?.state === 'paused') {
+      recorder.resume();
+      document.querySelector('#capture-status').textContent = 'Listening';
+      document.querySelector('[data-capture-action="pause"]').disabled = false;
+      document.querySelector('[data-capture-action="resume"]').disabled = true;
+      notify('Capture resumed');
+    }
+  } else if (captureAction === 'mute') {
+    const tracks = window.__captureStream?.getAudioTracks() || [];
+    if (!tracks.length) return notify('Start microphone capture first');
+    const muted = tracks.some(track => track.enabled);
+    tracks.forEach(track => { track.enabled = !muted; });
+    const button = document.querySelector('[data-capture-action="mute"]');
+    if (button) button.textContent = muted ? 'Unmute' : 'Mute';
+    document.querySelector('#capture-status').textContent = muted ? 'Muted' : 'Listening';
+    notify(muted ? 'Microphone muted' : 'Microphone unmuted');
   } else if (captureAction === 'stop') {
     if (window.__captureRecorder?.state === 'recording') window.__captureRecorder.stop();
     window.__captureStream?.getTracks().forEach(track => track.stop());
     await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/stop`, {method:'POST'}).catch(() => null);
     document.querySelector('#capture-status').textContent = 'Processing';
     document.querySelector('[data-capture-action="start"]').disabled = false;
+    document.querySelector('[data-capture-action="pause"]').disabled = true;
+    document.querySelector('[data-capture-action="resume"]').disabled = true;
+    document.querySelector('[data-capture-action="mute"]').disabled = true;
     document.querySelector('[data-capture-action="stop"]').disabled = true;
     notify('Microphone stopped — processing the recording');
   }
@@ -867,7 +900,7 @@ document.addEventListener('submit', async e => {
     e.preventDefault();
     const form = new FormData(e.target);
     try {
-      await api('/api/capture/text', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({text: form.get('text'), speaker: form.get('speaker'), language: form.get('language')}) });
+      await api('/api/capture/text', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({text: form.get('text'), speaker: form.get('speaker'), language: form.get('language'), session_id: activeSessionId()}) });
       state.data = await api('/api/dashboard');
       e.target.reset();
       notify('Live capture saved to the event stream');
