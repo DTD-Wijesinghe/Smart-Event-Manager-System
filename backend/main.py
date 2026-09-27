@@ -1142,6 +1142,8 @@ def generate_takeaway(request: TakeawayGenerateRequest) -> dict:
 @app.post(f"{settings.api_prefix}/content/generate", status_code=201)
 def generate_content(request: ContentGenerateRequest) -> dict:
     if not request.text.strip(): raise HTTPException(status_code=400, detail="Source text is required")
+    evidence_rows = [row for row in (list_items("transcripts") + list_items("insights")) if (not request.event_id or row.get("event_id") == request.event_id) and (not request.session_id or row.get("session_id") == request.session_id)]
+    evidence = [{"id": row.get("id"), "session_id": row.get("session_id"), "speaker": row.get("speaker"), "timestamp": row.get("created_at"), "snippet": (row.get("text") or row.get("body") or row.get("title") or "")[:240]} for row in evidence_rows[:20]]
     try:
         result = generate_content_ai(request.text, request.targetLanguage, request.asset_type)
         mode = "ai"
@@ -1149,8 +1151,8 @@ def generate_content(request: ContentGenerateRequest) -> dict:
         fallback_titles = {"executive_brief": "Executive brief", "attendee_recap": "Attendee recap", "speaker_pack": "Speaker pack", "social_carousel": "Social carousel", "followup_email": "Follow-up email", "sponsor_update": "Sponsor update"}
         result = {"model": "local-fallback", "targetLanguage": request.targetLanguage, "assetType": request.asset_type, "output": f"{fallback_titles.get(request.asset_type, 'Event content')}\n\nKey signal\n{request.text[:420]}\n\nNext action\nShare this evidence with the event team and approve the final version before publishing."}
         mode = "fallback"
-    asset = create_generated_asset({"event_id": request.event_id, "session_id": request.session_id, "asset_type": request.asset_type, "title": request.title, "content": {"output": result.get("output", ""), "targetLanguage": request.targetLanguage, "model": result.get("model", "")}, "status": "draft"})
-    return {**result, "mode": mode, "asset": asset}
+    asset = create_generated_asset({"event_id": request.event_id, "session_id": request.session_id, "asset_type": request.asset_type, "title": request.title, "content": {"output": result.get("output", ""), "targetLanguage": request.targetLanguage, "model": result.get("model", ""), "evidence": evidence}, "status": "draft"})
+    return {**result, "asset_type": request.asset_type, "mode": mode, "evidence": evidence, "asset": asset}
 
 
 @app.post(f"{settings.api_prefix}/capture/text", status_code=201)
