@@ -20,6 +20,7 @@ html,body{max-width:100%;overflow-x:hidden}
 .hero-copy h1{font-size:clamp(48px,5.8vw,78px);letter-spacing:-.075em;line-height:.96;max-width:720px}
 .hero-copy>p{max-width:560px;color:#565764;font-size:18px;line-height:1.65}
 @media(max-width:800px){.form-grid .capture-form-row{grid-template-columns:1fr}}
+.integrations-modal{width:min(720px,100%);max-height:min(720px,90vh);overflow:auto}.integration-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(250px, .9fr);gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.integration-row:first-child{border-top:0}.integration-row strong{display:block;margin-top:4px}.integration-row p{margin:5px 0 0}.integration-controls{display:grid;grid-template-columns:1fr 120px auto;gap:8px;align-items:center}.integration-controls input,.integration-controls select{min-width:0;padding:10px;border:1px solid var(--line);border-radius:9px;font:inherit;background:#fafaf7}.integration-controls .btn{padding:10px 12px}@media(max-width:680px){.integration-row{grid-template-columns:1fr}.integration-controls{grid-template-columns:1fr 1fr}.integration-controls .btn{grid-column:1/-1}}
 /* Brand refresh: a brighter signal mark and a more intentional wordmark. */
 .brand-name{display:flex;flex-direction:column;gap:2px;letter-spacing:-.055em;font-size:15px;font-weight:800}
 .brand-name>span{color:#fff}

@@ -280,7 +280,7 @@ teamPanelMarkup = function enhancedTeamPanelMarkup(team) {
 async function teamModal() {
   document.querySelector('.modal-backdrop')?.remove();
   const organizationId = state.data?.event?.organization_id || 'org-demo';
-  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal team-modal"><div class="eyebrow">Workspace access</div><h2>Team & roles</h2><p>Invite collaborators and keep event operations scoped to the right role.</p><div id="team-panel-content"><span class="muted">Loading workspace members…</span></div><div class="organizer-divider"></div><form id="invite-form" class="form-grid"><label>Invite by email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="event_organizer">Event organizer</option><option value="content_editor">Content editor</option><option value="speaker">Speaker</option><option value="attendee">Attendee</option><option value="organization_admin">Organization admin</option></select></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button><button class="btn lime">Send invitation ↗</button></div></form></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal team-modal"><div class="eyebrow">Workspace access</div><h2>Team & roles</h2><p>Invite collaborators and keep event operations scoped to the right role.</p><div id="team-panel-content"><span class="muted">Loading workspace members…</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="open-integrations">Manage integrations</button></div><div class="organizer-divider"></div><form id="invite-form" class="form-grid"><label>Invite by email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="event_organizer">Event organizer</option><option value="content_editor">Content editor</option><option value="speaker">Speaker</option><option value="attendee">Attendee</option><option value="organization_admin">Organization admin</option></select></label><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Close</button><button class="btn lime">Send invitation ↗</button></div></form></div></div>`);
   document.querySelector('.team-modal')?.insertAdjacentHTML('afterbegin', '<form id="organization-form" class="form-grid"><div class="eyebrow">Organization settings</div><div class="capture-form-row"><label>Organization name<input name="name" required></label><label>Website<input name="website" type="url" placeholder="https://example.com"></label></div><div class="capture-form-row"><label>Industry<input name="industry" placeholder="Events and experiences"></label><label>Timezone<input name="timezone" placeholder="UTC"></label><label>Preferred language<input name="preferred_language" value="en" placeholder="en"></label></div><label>Logo URL<input name="logo_url" type="url" placeholder="https://…"></label><div class="modal-actions"><button class="btn ghost">Save organization settings</button></div></form>');
   try {
     const team = await api(`/api/team?organization_id=${encodeURIComponent(organizationId)}`);
@@ -291,6 +291,49 @@ async function teamModal() {
     if (organization) { const form = document.querySelector('#organization-form'); if (form) Object.entries(organization).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value || ''; }); }
   } catch (error) { const panel = document.querySelector('#team-panel-content'); if (panel) panel.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
+const integrationCatalog = [
+  {provider:'google_calendar', name:'Google Calendar', description:'Keep event schedules and session times aligned.', metadata:'calendar_id'},
+  {provider:'livekit', name:'LiveKit rooms', description:'Connect multi-user audio rooms for remote sessions.', metadata:'room_prefix'},
+  {provider:'vertex_ai', name:'Vertex AI', description:'Use the configured server-side model for summaries and translation.', metadata:'model'},
+  {provider:'supabase', name:'Supabase data', description:'Persist workspace data, auth, and attendee activity.', metadata:'project_url'}
+];
+async function integrationsModal() {
+  document.querySelector('.modal-backdrop')?.remove();
+  const organizationId = state.data?.event?.organization_id || 'org-demo';
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop"><div class="modal integrations-modal"><div class="eyebrow">Workspace connections</div><h2>Integrations</h2><p>Connect event tools without placing API keys in the browser. Secrets stay in the server environment.</p><div id="integrations-panel"><span class="muted">Loading connections…</span></div><div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">Done</button></div></div></div>`);
+  const panel = document.querySelector('#integrations-panel');
+  try {
+    const saved = await api(`/api/integrations?organization_id=${encodeURIComponent(organizationId)}`);
+    panel.innerHTML = integrationCatalog.map(item => {
+      const current = saved.find(row => row.provider === item.provider) || {};
+      const status = current.status || 'disconnected';
+      const metadata = current.metadata || {};
+      const value = metadata[item.metadata] || '';
+      return `<form class="integration-row" data-integration-provider="${item.provider}"><div><span class="kind">${status.toUpperCase()}</span><strong>${item.name}</strong><p class="muted">${item.description}</p></div><div class="integration-controls"><input name="metadata" value="${esc(value)}" placeholder="${item.metadata.replaceAll('_',' ')}" aria-label="${item.name} metadata"><select name="status" aria-label="${item.name} status"><option value="connected" ${status === 'connected' ? 'selected' : ''}>Connected</option><option value="pending" ${status === 'pending' ? 'selected' : ''}>Pending</option><option value="disconnected" ${status === 'disconnected' ? 'selected' : ''}>Disconnected</option><option value="error" ${status === 'error' ? 'selected' : ''}>Error</option></select><button class="btn ghost">Save</button></div></form>`;
+    }).join('');
+  } catch (error) { panel.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
+document.addEventListener('click', event => {
+  if (!event.target.closest('[data-action="open-integrations"]')) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  integrationsModal();
+}, true);
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('[data-integration-provider]');
+  if (!form) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const organizationId = state.data?.event?.organization_id || 'org-demo';
+  const provider = form.dataset.integrationProvider;
+  const status = form.elements.status.value;
+  const metadataKey = integrationCatalog.find(item => item.provider === provider)?.metadata || 'value';
+  try {
+    await api(`/api/integrations/${encodeURIComponent(provider)}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({organization_id: organizationId, status, display_name: integrationCatalog.find(item => item.provider === provider)?.name || provider, metadata: {[metadataKey]: form.elements.metadata.value.trim()}})});
+    notify(`${provider.replaceAll('_',' ')} integration saved`);
+    integrationsModal();
+  } catch (error) { notify(error.message); }
+}, true);
 document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!['help', 'notifications'].includes(action)) return;
