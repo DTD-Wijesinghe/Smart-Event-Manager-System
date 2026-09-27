@@ -79,6 +79,14 @@ class RecoveryRequest(BaseModel):
     email: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    password: str
+
+
 class AnalystRequest(BaseModel):
     question: str
     event_id: str | None = None
@@ -139,6 +147,38 @@ def logout(authorization: str | None = Header(default=None)) -> dict:
         if not response.is_success:
             raise HTTPException(status_code=response.status_code, detail="Logout failed")
     return {"ok": True}
+
+
+@app.post(f"{settings.api_prefix}/auth/refresh")
+def refresh_session(request: RefreshRequest) -> dict:
+    if not request.refresh_token.strip():
+        raise HTTPException(status_code=400, detail="Refresh token is required")
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        return {"mode": "demo", "session": {"access_token": "demo-session", "refresh_token": request.refresh_token}}
+    response = httpx.post(f"{settings.supabase_url}/auth/v1/token?grant_type=refresh_token", headers=_auth_headers(), json={"refresh_token": request.refresh_token}, timeout=20)
+    if not response.is_success:
+        raise HTTPException(status_code=response.status_code, detail="Session refresh failed")
+    return {"mode": "supabase", "session": response.json()}
+
+
+@app.post(f"{settings.api_prefix}/auth/reset-password")
+def reset_password(request: ResetPasswordRequest, authorization: str | None = Header(default=None)) -> dict:
+    if len(request.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        return {"mode": "demo", "ok": True, "message": "Password updated"}
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Recovery authorization is required")
+    response = httpx.put(
+        f"{settings.supabase_url}/auth/v1/user",
+        headers={"apikey": settings.supabase_anon_key, "Authorization": authorization, "Content-Type": "application/json"},
+        json={"password": request.password},
+        timeout=20,
+    )
+    if not response.is_success:
+        detail = response.json().get("msg") or response.json().get("error_description") or "Password reset failed"
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    return {"mode": "supabase", "ok": True, "message": "Password updated"}
 
 
 @app.get(f"{settings.api_prefix}/dashboard")

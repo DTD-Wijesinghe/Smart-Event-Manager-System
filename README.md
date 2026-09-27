@@ -68,6 +68,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/health`
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/forgot-password`
 - `POST /api/auth/logout`
+- `POST /api/auth/refresh`
 - `GET /api/dashboard`
 - `GET /api/sessions`
 - `POST`, `PATCH`, `DELETE /api/sessions` plus `POST /api/sessions/{session_id}/duplicate`
