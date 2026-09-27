@@ -322,7 +322,8 @@ async def protect_api(request, call_next):
     if rate_key and _rate_limited(*rate_key):
         return JSONResponse(status_code=429, content={"detail": "Too many requests. Please retry shortly."}, headers={"Retry-After": "60"})
     attendee_public = (
-        relative.startswith("public/share")
+        (relative == "public/assets" and method == "GET")
+        or relative.startswith("public/share")
         or (relative == "questions" and method in {"GET", "POST"})
         or (relative.startswith("questions/") and relative.endswith("/votes") and method == "POST")
         or (relative == "polls" and method == "GET")
@@ -826,6 +827,17 @@ def get_public_share(token: str) -> dict:
     if not result:
         raise HTTPException(status_code=404, detail="Share link not found")
     return result
+
+
+@app.get(f"{settings.api_prefix}/public/assets")
+def get_public_assets(event_id: str | None = None, session_id: str | None = None, share_token: str | None = None, authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_portal_access(authorization, share_token, session_id=session_id, event_id=event_id)
+    return [
+        row for row in list_items("generated_assets")
+        if row.get("status") == "published"
+        and (not event_id or row.get("event_id") == event_id)
+        and (not session_id or row.get("session_id") in {None, session_id})
+    ]
 
 
 def _require_portal_access(authorization: str | None, share_token: str | None, session_id: str | None = None, event_id: str | None = None) -> None:

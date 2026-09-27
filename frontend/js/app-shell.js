@@ -785,6 +785,17 @@ async function showTopicEvidence(topic) {
     if (evidence) evidence.innerHTML = results.slice(0, 4).map(result => `<div class="insight"><span class="kind">${esc(result.type)} · ${esc(result.session_title || result.session_id || '')}</span><p>${esc(result.snippet)}</p></div>`).join('') || '<div class="muted">No supporting passage found.</div>';
   } catch (error) { if (evidence) evidence.innerHTML = `<div class="muted">${esc(error.message)}</div>`; }
 }
+async function mountPublishedContent() {
+  if (state.view !== 'attendee' || document.querySelector('.published-content-panel')) return;
+  document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions published-content-panel"><div class="attendee-interaction-card"><div class="eyebrow">Event content</div><h2>Keep the conversation going</h2><p>Approved recaps and briefs from this event, ready to revisit and share.</p><div id="published-content-list" class="insight-list"><span class="muted">Loading published content…</span></div></div></section>');
+  try {
+    const eventId = state.data?.event?.id || '';
+    const sessionId = activeSessionId();
+    const assets = await api(`/api/public/assets?event_id=${encodeURIComponent(eventId)}&session_id=${encodeURIComponent(sessionId)}&share_token=${encodeURIComponent(state.publicShareToken || '')}`);
+    const list = document.querySelector('#published-content-list');
+    if (list) list.innerHTML = assets.length ? assets.map(asset => { const content = typeof asset.content === 'object' ? asset.content.output || '' : asset.content || ''; return `<article class="insight"><span class="kind">${esc(asset.asset_type || 'event content')}</span><strong>${esc(asset.title || 'Published event content')}</strong><p>${esc(content).slice(0, 900)}</p></article>`; }).join('') : '<span class="muted">Published event content will appear here after organizer approval.</span>';
+  } catch (error) { const list = document.querySelector('#published-content-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
 async function mountAudienceData() {
   if (state.view !== 'attendee' || document.querySelector('.audience-data-panel')) return;
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', '<section class="attendee-interactions audience-data-panel"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Questions and polls</h2><div id="question-feed" class="insight-list"><span class="muted">Loading audience activity…</span></div><div id="poll-feed" class="insight-list"></div></div></section>');
@@ -848,7 +859,7 @@ async function mountSessionShareLinks() {
   } catch (error) { const list = document.querySelector('#session-share-list'); if (list) list.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountLiveMetrics(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountPublishedContent(); mountAudienceData(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
 document.addEventListener('submit', async e => {
   if (e.target.id === 'search-form') {
     e.preventDefault();

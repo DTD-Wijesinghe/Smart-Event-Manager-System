@@ -93,6 +93,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 - `GET /api/insights`
 - `GET /api/share-links`
 - `GET /api/public/share/{token}` — resolve an attendee link, return its event/session payload, and record a portal open
+- `GET /api/public/assets?event_id=...&session_id=...&share_token=...` — read only published event content through a valid attendee share link
 - The attendee portal is session-aware: attendees can switch sessions, and the selected session scopes its live transcript, Q&A, polls, feedback, and browser capture workflow.
 - `GET /api/transcripts?session_id=...` - read the live transcript stream, optionally scoped to a session; organizer calls use a bearer session and attendee calls must include the QR `share_token`
 - `GET /api/summaries?session_id=...&event_id=...` - read persisted session summaries
