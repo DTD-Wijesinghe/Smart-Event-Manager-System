@@ -528,6 +528,32 @@ document.addEventListener('click', event => {
   }
 }, true);
 function closeWorkspaceMenu() { document.querySelector('.sidebar')?.classList.remove('open'); }
+function applyEventoraBrand(root = document) {
+  document.title = 'EVENTORA Global · Event Management';
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  textNodes.forEach(node => {
+    const next = node.nodeValue.replaceAll('Smart Event Manager', 'Eventora').replaceAll('smart event manager', 'Eventora');
+    if (next !== node.nodeValue) node.nodeValue = next;
+  });
+  root.querySelectorAll('.landing-brand,.attendee-brand,.screen-top .brand,.sidebar .brand').forEach(brand => {
+    if (brand.dataset.eventoraBranded) return;
+    brand.dataset.eventoraBranded = 'true';
+    const isLanding = brand.classList.contains('landing-brand');
+    brand.innerHTML = isLanding
+      ? '<span class="eventora-lockup" aria-label="EVENTORA Global"></span>'
+      : '<span class="logo" aria-hidden="true"></span><span class="eventora-wordmark">EVENTORA <b>GLOBAL</b></span>';
+  });
+}
+applyEventoraBrand(document);
+const eventoraBrandObserver = new MutationObserver(() => applyEventoraBrand(document.querySelector('#app') || document));
+eventoraBrandObserver.observe(document.querySelector('#app'), {childList:true, subtree:true});
+const heroPunctuationObserver = new MutationObserver(() => {
+  const heroLine = document.querySelector('.hero-copy h1 span');
+  if (heroLine?.textContent?.endsWith('.')) heroLine.textContent = heroLine.textContent.slice(0, -1);
+});
+heroPunctuationObserver.observe(document.querySelector('#app'), {childList:true, subtree:true});
 document.querySelector('#mobileMenu').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
 document.querySelector('#sidebarClose').addEventListener('click', closeWorkspaceMenu);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeWorkspaceMenu(); });
