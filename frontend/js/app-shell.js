@@ -6,6 +6,18 @@ let attendeeTranscriptRefreshTimer = null;
 const app = document.querySelector('#app');
 const toast = document.querySelector('#toast');
 
+// Landing controls must work even when the page is entered directly at #auth.
+// Handle them at capture phase so no later navigation listener can leave the
+// URL changed while the visible view remains on the landing page.
+document.addEventListener('click', event => {
+  const login = event.target.closest('.landing-login');
+  const register = event.target.closest('.landing-register');
+  if (!login && !register) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  window.selectAuthMode(register ? 'register' : 'login');
+}, true);
+
 const esc = (value = '') => String(value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const date = iso => new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 const money = num => new Intl.NumberFormat('en', { notation:'compact', maximumFractionDigits:1 }).format(num);
