@@ -527,7 +527,17 @@ document.addEventListener('click', event => {
     if (option) { selector.value = option.value; selector.dispatchEvent(new Event('change', {bubbles: true})); }
   }
 }, true);
+function closeWorkspaceMenu() { document.querySelector('.sidebar')?.classList.remove('open'); }
 document.querySelector('#mobileMenu').addEventListener('click',()=>document.querySelector('.sidebar').classList.toggle('open'));
+document.querySelector('#sidebarClose').addEventListener('click', closeWorkspaceMenu);
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeWorkspaceMenu(); });
+document.addEventListener('click', event => { if (event.target.closest('.nav-item,[data-view-link]')) closeWorkspaceMenu(); }, true);
+document.addEventListener('click', event => {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar?.classList.contains('open')) return;
+  if (event.target.closest('.sidebar,#mobileMenu')) return;
+  closeWorkspaceMenu();
+});
 document.addEventListener('change', async e => { const selector=e.target.closest('.transcript-toolbar select'); if(!selector)return; const language=(selector.value||'English').split(' ')[0]; if(language==='English')return notify('Original English transcript selected'); const lines=[...document.querySelectorAll('.transcript-card .transcript-line')]; const source=lines.map(item=>item.querySelector('p')?.textContent || '').filter(Boolean).join('\n'); const status=document.querySelector('#translation-status'); if(status)status.textContent='Translating…'; try{let result; const sessionId=activeSessionId(); let segments=lines.map(item=>item.dataset.segmentId).filter(Boolean); if(!segments.length){const rows=await api(`/api/transcript-segments?session_id=${encodeURIComponent(sessionId)}`); segments=rows.slice(-lines.length).map(row=>row.id);} if(segments.length){const saved=[]; for(const segmentId of segments){const line=lines.find(item=>item.dataset.segmentId===segmentId)?.querySelector('p')?.textContent || source; saved.push(await api(`/api/transcript-segments/${encodeURIComponent(segmentId)}/translate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:line,targetLanguage:language})}));} result={targetLanguage:language,output:saved.map(item=>item.output).join('\n'),mode:saved.some(item=>item.mode==='live')?'live':'fallback'};}else{result=await api('/api/ai/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:source,targetLanguage:language})});} let output=document.querySelector('.translation-output'); if(!output){document.querySelector('.transcript-card')?.insertAdjacentHTML('afterbegin','<div class="translation-output insight"></div>');output=document.querySelector('.translation-output')} output.innerHTML=`<span class="kind">${esc(result.targetLanguage)} translation</span><p>${esc(result.output)}</p>`; if(status)status.textContent=result.mode==='fallback'?'Local preview':'Saved'; }catch(error){if(status)status.textContent=error.message} });
 document.addEventListener('click', async event => {
   const button = event.target.closest('[data-question-moderate]');
