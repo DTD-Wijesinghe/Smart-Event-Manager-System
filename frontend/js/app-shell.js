@@ -1269,11 +1269,9 @@ document.addEventListener('submit', async event => {
 }, true);
 
 function mountAttendeeSessionPicker() {
-  if (state.view !== 'attendee' || document.querySelector('#attendee-session-select')) return;
-  const sessions = state.data?.sessions || [];
-  if (!sessions.length) return;
-  const options = sessions.map(session => `<option value="${esc(session.id)}" ${session.id === activeSessionId() ? 'selected' : ''}>${esc(session.title)} · ${esc(session.track || '')}</option>`).join('');
-  document.querySelector('.attendee-card')?.insertAdjacentHTML('beforeend', `<label class="session-picker">Session<select id="attendee-session-select">${options}</select></label>`);
+  // The active session is already shown in the attendee card's "Now on
+  // stage" block. Do not render a second selector underneath it.
+  document.querySelector('.session-picker')?.remove();
 }
 function mountAttendeeInteractions() {
   if (document.querySelector('.attendee-interactions')) return;
