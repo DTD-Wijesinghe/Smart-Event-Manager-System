@@ -139,11 +139,57 @@ async function load() {
   state.authenticated = Boolean(localStorage.getItem('smart-event-session'));
   const recoveryParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   const recoveryToken = recoveryParams.get('access_token') || new URLSearchParams(location.search).get('access_token');
+  const callbackType = recoveryParams.get('type');
+  const callbackAccessToken = recoveryParams.get('access_token');
+  const callbackRefreshToken = recoveryParams.get('refresh_token');
+  const callbackError = recoveryParams.get('error_description') || recoveryParams.get('error');
+  if (callbackError) {
+    history.replaceState({}, '', `${location.pathname}#auth`);
+    state.authMode = 'login';
+    state.view = 'auth';
+    render();
+    notify(decodeURIComponent(callbackError.replace(/\+/g, ' ')));
+    return;
+  }
   if (recoveryToken && (recoveryParams.get('type') === 'recovery' || location.hash.includes('type=recovery'))) {
     state.resetToken = recoveryToken;
     state.authMode = 'reset';
     state.view = 'auth';
     render();
+    return;
+  }
+  // Supabase redirects here after a user confirms their email. The tokens
+  // arrive in the URL hash; persist them before loading the protected
+  // dashboard, then remove them from the address bar.
+  if (callbackAccessToken && ['signup', 'magiclink', 'login'].includes(callbackType || '')) {
+    localStorage.setItem('smart-event-session', JSON.stringify({
+      access_token: callbackAccessToken,
+      refresh_token: callbackRefreshToken || '',
+      token_type: 'bearer',
+      expires_in: Number(recoveryParams.get('expires_in') || 3600),
+      expires_at: Number(recoveryParams.get('expires_at') || 0),
+    }));
+    state.authenticated = true;
+    state.authMode = 'login';
+    state.view = 'overview';
+    history.replaceState({view: 'overview'}, '', `${location.pathname}#overview`);
+    render();
+    try {
+      state.data = await api('/api/dashboard');
+      if (!state.data?.event) {
+        await api('/api/onboarding/bootstrap', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({organization_name:'My event team', event_name:'My first event'})});
+        state.data = await api('/api/dashboard');
+      }
+      render();
+      notify(callbackType === 'signup' ? 'Email confirmed — welcome to Smart Event Manager' : 'Welcome back - organizer workspace ready');
+    } catch (error) {
+      localStorage.removeItem('smart-event-session');
+      state.authenticated = false;
+      state.authMode = 'login';
+      state.view = 'auth';
+      render();
+      notify(`Email confirmed, but the workspace could not load: ${error.message}`);
+    }
     return;
   }
   const initialShareToken = new URLSearchParams(location.search).get('share');
