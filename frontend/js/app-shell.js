@@ -14,7 +14,15 @@ function attendeePortalUrl(data = state.data) {
 }
 function activeSessionId() { return state.currentSessionId || state.data?.sessions?.find(session => session.status === 'live')?.id || state.data?.sessions?.[0]?.id || 'ses-001'; }
 function attendeeApi(path) { if (state.authenticated || !state.publicShareToken) return path; return `${path}${path.includes('?') ? '&' : '?'}share_token=${encodeURIComponent(state.publicShareToken)}`; }
-function notify(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2600); }
+function notify(message) {
+  const raw = String(message || '');
+  const friendly = /rate limit.*exceed/i.test(raw)
+    ? 'Email sending is temporarily limited by Supabase. Wait a few minutes or use a configured SMTP provider, then try again.'
+    : raw;
+  toast.textContent = friendly;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4200);
+}
 function showUtilityPanel(title, eyebrow, body) { document.querySelector('.utility-panel')?.remove(); document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop utility-panel"><div class="modal"><div class="eyebrow">${esc(eyebrow)}</div><h2>${esc(title)}</h2><div class="insight-list">${body}</div><div class="modal-actions"><button type="button" class="btn lime" data-action="close-modal">Close</button></div></div></div>`); }
 function globalSearchModal() {
   document.querySelector('.modal-backdrop')?.remove();
@@ -549,6 +557,11 @@ function applyEventoraBrand(root = document) {
 applyEventoraBrand(document);
 const eventoraBrandObserver = new MutationObserver(() => applyEventoraBrand(document.querySelector('#app') || document));
 eventoraBrandObserver.observe(document.querySelector('#app'), {childList:true, subtree:true});
+const authTabObserver = new MutationObserver(() => {
+  if (state.view !== 'auth') return;
+  document.querySelectorAll('[data-auth-tab]').forEach(tab => tab.classList.toggle('active', tab.dataset.authTab === state.authMode));
+});
+authTabObserver.observe(document.querySelector('#app'), {childList:true, subtree:true});
 const heroPunctuationObserver = new MutationObserver(() => {
   const heroLine = document.querySelector('.hero-copy h1 span');
   if (heroLine?.textContent?.endsWith('.')) heroLine.textContent = heroLine.textContent.slice(0, -1);
