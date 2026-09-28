@@ -194,6 +194,46 @@ input,select,textarea{min-width:0}
   .card-head{align-items:flex-start}
 }
 
+/* Attendee transcript portal: high-contrast, touch-friendly presentation on
+   phones and small tablets. This view is public-facing and must not inherit
+   the low-contrast editorial landing-page typography. */
+.transcript-view{margin:-34px -34px 0;min-height:calc(100vh - 76px);padding:34px 42px 72px;background:radial-gradient(circle at 86% 8%,rgba(117,104,243,.28),transparent 32%),#191a2b;color:#f8f5ec;overflow-x:hidden}
+.transcript-view .view-head{max-width:1180px;margin:0 auto 26px;display:flex;align-items:flex-end;justify-content:space-between;gap:28px}
+.transcript-view .view-head>div:first-child{min-width:0}
+.transcript-view .view-head .eyebrow{color:#ffb18a;letter-spacing:.16em}
+.transcript-view .view-head h1{color:#fff;font-size:clamp(46px,7vw,92px);line-height:.9;letter-spacing:-.09em;margin:14px 0 18px;overflow-wrap:anywhere}
+.transcript-view .view-head p{color:#d6d3df;max-width:620px;font-size:16px;line-height:1.55;margin:0}
+.transcript-view .view-head .actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;flex:0 0 auto}
+.transcript-view .view-head .btn{min-height:44px;white-space:nowrap}
+.transcript-view .view-head .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.42);color:#fff}
+.transcript-view .view-head .btn.ghost:hover{background:rgba(255,255,255,.1);border-color:#fff}
+.transcript-view .view-head .btn.lime{background:#e4ff63;color:#191a2b;border-color:#e4ff63}
+.transcript-view .transcript-toolbar{max-width:1180px;margin:0 auto 16px;background:#fff;color:#191a2b;border:0;box-shadow:0 18px 42px rgba(0,0,0,.18);border-radius:16px}
+.transcript-view .transcript-toolbar .muted{color:#6e6c78}
+.transcript-view .transcript-toolbar select{color:#191a2b;background:#fafaf7;min-width:190px}
+.transcript-view .transcript-grid{max-width:1180px;margin:0 auto;align-items:start}
+.transcript-view .transcript-card,.transcript-view .translation-card{background:#fff;color:#191a2b;border:0;border-radius:16px;box-shadow:0 18px 42px rgba(0,0,0,.14)}
+.transcript-view .transcript-line span{color:#777584}
+.transcript-view .transcript-line p{color:#191a2b;line-height:1.55;overflow-wrap:anywhere}
+.transcript-view .translation-card .card-head{border-bottom:1px solid #e7e4df}
+.transcript-view .language-list div{border-color:#e7e4df}
+.transcript-view .language-list b{color:#7568f3}
+@media(max-width:760px){
+  .transcript-view{margin:-22px -16px 0;padding:26px 16px 48px;min-height:calc(100vh - 60px)}
+  .transcript-view .view-head{display:block;margin-bottom:20px}
+  .transcript-view .view-head h1{font-size:clamp(44px,14vw,70px);line-height:.9;margin:12px 0 16px}
+  .transcript-view .view-head p{font-size:15px;line-height:1.5}
+  .transcript-view .view-head .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:20px}
+  .transcript-view .view-head .btn{width:100%;min-width:0;min-height:48px;padding:11px 10px;white-space:normal;line-height:1.2}
+  .transcript-view .transcript-toolbar{display:grid;grid-template-columns:1fr;gap:10px;padding:16px;margin-bottom:12px}
+  .transcript-view .transcript-toolbar select{width:100%;min-width:0;margin:0;padding:12px;font-size:14px}
+  .transcript-view .transcript-grid{gap:12px}
+  .transcript-view .transcript-card{padding:8px 16px}
+  .transcript-view .transcript-line{grid-template-columns:56px minmax(0,1fr);gap:10px;padding:16px 0}
+  .transcript-view .transcript-line p{font-size:15px}
+  .transcript-view .translation-card .card-head{padding:18px 16px}
+}
+
 /* Analyst conversation history */
 .analyst-history{border-top:1px solid var(--line);margin-top:22px;padding-top:18px}
 .analyst-conversation{display:flex;width:100%;align-items:center;justify-content:space-between;text-align:left;gap:14px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);background:#fafaf7;border-radius:10px}
