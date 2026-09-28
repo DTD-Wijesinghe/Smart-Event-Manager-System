@@ -994,6 +994,7 @@ document.addEventListener('click', async e => {
       }
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       let liveRecognition = null;
+      const browserSpeechAvailable = Boolean(SpeechRecognition);
       let browserSpeechCount = 0;
       const sendBrowserTranscript = text => {
         const language = document.querySelector('#capture-language')?.value || 'en-US';
@@ -1092,10 +1093,12 @@ document.addEventListener('click', async e => {
       if (liveRecognition) {
         try { liveRecognition.start(); } catch (_) {}
       } else {
-        notify('Browser speech recognition is unavailable; configure cloud transcription or use Live text bridge');
+        const status = document.querySelector('#capture-status');
+        if (status) status.textContent = 'Audio only · no speech-to-text';
+        notify('This browser cannot convert speech to text. Use Chrome or Edge, configure cloud transcription, or use Live text bridge');
       }
       await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/start`, {method:'POST'}).catch(() => null);
-      document.querySelector('#capture-status').textContent = 'Listening';
+      if (browserSpeechAvailable) document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
       document.querySelector('[data-capture-action="pause"]').disabled = false;
       document.querySelector('[data-capture-action="resume"]').disabled = true;
