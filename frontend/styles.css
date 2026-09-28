@@ -265,6 +265,41 @@ input,select,textarea{min-width:0}
   .marketing .hero-proof{justify-content:center}
 }
 @media(prefers-reduced-motion:reduce){.screen-signal i,.attendee-card,.auth-card,.attendee-tiles article,.auth-art h1,.screen-content h1,.attendee-hero h1,.marketing *{animation:none!important;transition:none!important}}
+
+/* Attendee portal layout: keep the header, section tabs, hero, and card in
+   normal flow so wide and narrow screens never stack them on top of each other. */
+.attendee-view{box-sizing:border-box;position:relative;width:100%;max-width:none;margin:-34px 0 0;padding:26px clamp(18px,4vw,52px) 48px;overflow-x:hidden}
+.attendee-nav{position:relative;z-index:3;width:min(1220px,100%);margin:0 auto;min-height:48px;display:grid;grid-template-columns:minmax(180px,1fr) auto minmax(180px,1fr);align-items:center;gap:18px}
+.attendee-nav .attendee-live{justify-self:center;white-space:nowrap}
+.attendee-nav .btn{justify-self:end;white-space:nowrap}
+.attendee-tabs{position:relative;z-index:2;width:min(1220px,100%);margin:18px auto 0;padding:7px;display:flex;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+.attendee-tabs button{flex:0 0 auto}
+.attendee-hero{position:relative;z-index:1;width:min(1220px,100%);margin:74px auto 62px;grid-template-columns:minmax(0,1.05fr) minmax(330px,.95fr);gap:clamp(28px,5vw,66px)}
+.attendee-hero>div{min-width:0}
+.attendee-card{width:100%;max-width:560px;justify-self:end}
+.attendee-session strong{overflow-wrap:anywhere}
+.attendee-tiles,.attendee-footer{width:min(1220px,100%)}
+
+@media(max-width:920px){
+  .attendee-hero{grid-template-columns:1fr;margin-top:48px}
+  .attendee-card{max-width:none;justify-self:stretch}
+}
+@media(max-width:760px){
+  .attendee-view{margin:-22px 0 0;padding:18px 16px 34px}
+  .attendee-nav{grid-template-columns:1fr auto;gap:12px;align-items:start}
+  .attendee-nav .attendee-live{grid-column:1 / -1;grid-row:2;justify-self:start;width:100%;order:3}
+  .attendee-nav .btn{grid-column:2;grid-row:1}
+  .attendee-brand{min-width:0;max-width:100%;overflow-wrap:anywhere}
+  .attendee-tabs{margin-top:16px;padding:6px}
+  .attendee-hero{margin:42px auto 42px;gap:24px}
+  .attendee-hero .actions{display:flex;flex-wrap:wrap;gap:10px}
+  .attendee-hero .actions .btn{flex:1 1 180px}
+  .translation-row{align-items:stretch}
+  .translation-row span{flex:1 1 100%}
+  .translation-row select,.translation-row .btn{flex:1 1 140px;min-width:0;margin-left:0}
+  .attendee-footer{display:flex;flex-direction:column;gap:12px;align-items:stretch}
+  .attendee-footer .btn{width:100%}
+}
 /* Mobile hero collision fix: keep copy and live visual in normal document flow. */
 @media(max-width:800px){
   .marketing .landing-hero{display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;min-height:auto;height:auto;gap:34px;padding:62px 20px 58px;overflow:hidden}
