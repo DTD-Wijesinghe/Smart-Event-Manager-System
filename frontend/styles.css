@@ -143,6 +143,32 @@ html,body{max-width:100%;overflow-x:hidden}
   .screen-bottom{display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding-top:15px;line-height:1.45}.screen-bottom .btn{margin-top:0;width:100%;text-align:center}
   .auth-view{margin:-22px -16px 0;min-height:calc(100vh - 60px);display:flex;flex-direction:column}.auth-art{padding:48px 24px 34px;min-height:auto;flex:0 0 auto}.auth-art h1{font-size:clamp(44px,13vw,70px);line-height:.9;margin:16px 0}.auth-art p{font-size:15px;line-height:1.5}.auth-orbit{width:300px;height:300px;right:-160px;top:14%;opacity:.75}.auth-proof{position:relative;left:auto;right:auto;bottom:auto;margin-top:28px;line-height:1.5;flex-wrap:wrap}.auth-card{margin:18px 16px 28px;width:calc(100% - 32px);padding:18px}.auth-form h2{font-size:25px}.auth-tabs{overflow:auto;white-space:nowrap}.auth-tab{flex:0 0 auto}
 }
+
+/* Final UI readability pass: prevent clipped chips, fields, buttons, and headings. */
+.page,.main,.card,.section-card,.capture-card,.capture-text-card,.event-intelligence-panel,.analytics-feedback-panel{min-width:0}
+.capture-form,.upload-form{width:100%;max-width:100%;min-width:0}
+.event-intelligence-panel #event-intelligence-content{min-width:0}
+.event-intelligence-panel .actions-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;max-width:100%;min-width:0;overflow:visible}
+.event-intelligence-panel .actions-row .btn{max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.3;padding:9px 12px}
+.event-intelligence-panel .actions-row .btn small{white-space:nowrap;margin-left:4px}
+.event-intelligence-panel .insight-list,.event-intelligence-panel .insight{min-width:0}
+.event-intelligence-panel .insight strong,.event-intelligence-panel .insight small{overflow-wrap:anywhere}
+.analytics-feedback-panel .insight-grid{min-width:0;align-items:start;gap:14px}
+.analytics-feedback-panel .insight{min-height:0;padding:16px}
+.analytics-feedback-panel .analytics-bar-row{min-width:0;padding:10px 0}
+.analytics-feedback-panel .analytics-bar-row>div:first-child{min-width:0}
+.analytics-feedback-panel .analytics-bar-row strong,.analytics-feedback-panel .analytics-bar-row small{overflow-wrap:anywhere}
+.analytics-feedback-panel .analytics-bar-track{width:100%;min-width:0}
+.capture-form textarea{display:block;width:100%;max-width:100%;min-width:0;overflow-wrap:anywhere}
+@media(max-width:800px){
+  .page{padding-left:16px;padding-right:16px}
+  .capture-card,.section-card{overflow:hidden}
+  .event-intelligence-panel .actions-row{gap:8px}
+  .event-intelligence-panel .actions-row .btn{flex:1 1 auto;min-width:0}
+  .marketing .hero-copy h1{font-size:clamp(44px,12.5vw,78px);line-height:.9;letter-spacing:-.065em;overflow-wrap:break-word;text-wrap:balance}
+  .marketing .hero-copy h1 span{display:block}
+  .marketing .landing-section-head h2{font-size:clamp(40px,11vw,64px)}
+}
 .table-toolbar{display:flex;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);background:#fbfbf8}.table-toolbar input,.table-toolbar select{min-width:180px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:white;font:inherit;color:var(--ink)}.table-toolbar input{flex:1}@media(max-width:640px){.table-toolbar{display:grid}.table-toolbar input,.table-toolbar select{min-width:0;width:100%}}
 
 .studio-card.orange{background:var(--orange);border-color:var(--orange)}
@@ -216,4 +242,11 @@ input,select,textarea{min-width:0}
   .marketing .float-b{left:-2px;top:1%;bottom:auto;background:#dd9270}
   .marketing .landing-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;justify-content:stretch;white-space:normal;text-align:center;padding:16px 18px;line-height:1.35}
   .marketing .landing-strip span:first-child{grid-column:1 / -1}
+}
+
+/* Ensure the final responsive typography stays readable on narrow screens. */
+@media(max-width:800px){
+  .marketing .hero-copy h1{font-size:clamp(44px,12.5vw,78px);line-height:.9;letter-spacing:-.065em;overflow-wrap:break-word;text-wrap:balance}
+  .marketing .hero-copy h1 span{display:block}
+  .marketing .landing-section-head h2{font-size:clamp(40px,11vw,64px)}
 }
