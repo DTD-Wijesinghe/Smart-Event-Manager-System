@@ -537,7 +537,7 @@ document.addEventListener('click', event => {
 }, true);
 function closeWorkspaceMenu() { document.querySelector('.sidebar')?.classList.remove('open'); }
 function applyEventoraBrand(root = document) {
-  document.title = 'EVENTORA Global · Event Management';
+  document.title = 'EVENTORA GLOBAL · Event Management';
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes = [];
   while (walker.nextNode()) textNodes.push(walker.currentNode);
