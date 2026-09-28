@@ -512,6 +512,13 @@ document.addEventListener('change', event => {
   if (!select) return;
   translateAttendeeLiveRows(state.attendeeLiveRows || []);
 }, true);
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-speak-text]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  speakAttendeeText(button.dataset.speakText || '', button.dataset.speakLanguage || 'English');
+}, true);
 document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!['help', 'notifications'].includes(action)) return;
@@ -1188,7 +1195,17 @@ function renderAttendeeLiveRows(rows) {
   const target = document.querySelector('#attendee-live-transcript');
   if (!target) return;
   const ordered = (rows || []).slice(-12);
-  target.innerHTML = ordered.length ? ordered.map(row => `<article class="attendee-live-line"><time>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'LIVE'}</time><p>${esc(row.text || '')}</p></article>`).join('') : '<p class="muted">Waiting for the organizer to start speaking…</p>';
+  target.innerHTML = ordered.length ? ordered.map(row => `<article class="attendee-live-line"><time>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'LIVE'}</time><div><p>${esc(row.text || '')}</p><button type="button" class="btn ghost listen-button" data-speak-text="${esc(row.text || '')}" data-speak-language="${esc(row.language || 'English')}">▶ Listen</button></div></article>`).join('') : '<p class="muted">Waiting for the organizer to start speaking…</p>';
+}
+function speakAttendeeText(text, language = 'English') {
+  if (!text?.trim()) return;
+  if (!('speechSynthesis' in window)) return notify('Audio playback is not supported in this browser');
+  window.speechSynthesis.cancel();
+  const locale = {English:'en-US', Spanish:'es-ES', French:'fr-FR', German:'de-DE', Italian:'it-IT', Portuguese:'pt-BR', Dutch:'nl-NL', Japanese:'ja-JP', Korean:'ko-KR', Chinese:'zh-CN', Hindi:'hi-IN', Tamil:'ta-IN', Sinhala:'si-LK', Arabic:'ar-SA', Turkish:'tr-TR', Russian:'ru-RU', Indonesian:'id-ID', Malay:'ms-MY', Thai:'th-TH', Vietnamese:'vi-VN'}[language] || language;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = locale;
+  utterance.rate = 0.96;
+  window.speechSynthesis.speak(utterance);
 }
 async function translateAttendeeLiveRows(rows) {
   const output = document.querySelector('#attendee-live-translation');
@@ -1204,10 +1221,14 @@ async function translateAttendeeLiveRows(rows) {
   if (language === 'English') { output.innerHTML = ''; if (status) status.textContent = 'Original transcript'; return; }
   const source = (rows || []).slice(-12).map(row => row.text || '').filter(Boolean).join('\n');
   if (!source) { output.innerHTML = '<span class="muted">Translation will appear when speech is captured.</span>'; return; }
+  const translationKey = `${language}|${source}`;
+  if (state.attendeeTranslationKey === translationKey) return;
   if (status) status.textContent = `Translating to ${language}…`;
   try {
     const result = await api(attendeeApi('/api/ai/translate'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source, targetLanguage:language, session_id:activeSessionId()})});
-    output.innerHTML = `<div class="attendee-translation-label">${esc(language)} · live translation</div><p>${esc(result.output || '')}</p>`;
+    const translated = result.output || '';
+    output.innerHTML = `<div class="attendee-translation-label">${esc(language)} · live translation</div><p>${esc(translated)}</p><button type="button" class="btn purple listen-button" data-speak-text="${esc(translated)}" data-speak-language="${esc(language)}">▶ Listen to translation</button>`;
+    state.attendeeTranslationKey = translationKey;
     if (status) status.textContent = result.mode === 'fallback' ? 'Preview translation' : 'Updated just now';
   } catch (error) { if (status) status.textContent = 'Translation unavailable'; output.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
