@@ -440,7 +440,10 @@ def health() -> dict[str, Any]:
 
 
 def _auth_headers() -> dict[str, str]:
-    return {"apikey": settings.supabase_anon_key, "Content-Type": "application/json"}
+    # Render deployments may provide only the server-side Supabase key. Keep
+    # Auth login/refresh functional in that configuration without exposing it
+    # to the browser; the key is used only by this backend.
+    return {"apikey": settings.supabase_anon_key or settings.supabase_key, "Content-Type": "application/json"}
 
 
 @app.post(f"{settings.api_prefix}/auth/register", status_code=201)
