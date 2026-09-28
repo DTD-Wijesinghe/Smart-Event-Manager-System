@@ -73,6 +73,18 @@ document.addEventListener('submit', async event => {
     if (output) output.innerHTML = results.map(item => `<article class="insight search-result"><span class="kind">${esc(item.type)} · score ${esc(item.score)}</span><strong>${esc(item.title || 'Event evidence')}</strong><p>${esc(item.snippet || '')}</p><small class="muted">${esc(item.session_title || 'Event-wide')} ${item.speaker ? `· ${esc(item.speaker)}` : ''}</small>${item.session_id ? `<button type="button" class="btn ghost" data-action="open-search-result" data-session-id="${esc(item.session_id)}">Open session ↗</button>` : ''}</article>`).join('');
   } catch (error) { if (output) output.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }, true);
+
+// Keep direct hash entry points and browser navigation in sync with the
+// visible SPA view. This also repairs deep links such as /#auth after a cold
+// production load where no organizer session exists yet.
+function syncPublicHashRoute() {
+  const route = location.hash.replace(/^#/, '').split('?')[0];
+  if (route === 'auth' || route === 'landing') {
+    if (state.view !== route) { state.view = route; render(); }
+  }
+}
+window.addEventListener('hashchange', syncPublicHashRoute);
+setTimeout(syncPublicHashRoute, 0);
 document.addEventListener('click', event => {
   const button = event.target.closest('[data-action="open-search-result"]');
   if (!button) return;
