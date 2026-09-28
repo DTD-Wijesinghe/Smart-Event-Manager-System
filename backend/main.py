@@ -1998,6 +1998,11 @@ async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(
         return {**result, "transcript": saved, "insight": insight}
     except Exception as exc:
         logger.exception("Batch transcription failed: %s", exc)
+        error_text = str(exc)
+        if "RESOURCE_EXHAUSTED" in error_text or "quota" in error_text.lower():
+            raise HTTPException(status_code=429, detail="Vertex AI transcription quota is exhausted. Wait for the quota window to reset, request more quota, or use a project/model with available capacity.") from exc
+        if "BILLING_DISABLED" in error_text or "billing to be enabled" in error_text.lower():
+            raise HTTPException(status_code=503, detail="Vertex AI billing is disabled for the configured project. Enable billing or choose a billed Vertex project.") from exc
         raise HTTPException(status_code=503, detail="Transcription is temporarily unavailable. Check the server AI configuration and retry.") from exc
 
 

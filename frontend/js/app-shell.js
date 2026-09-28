@@ -983,6 +983,7 @@ document.addEventListener('click', async e => {
       let liveSocket = null;
       let streamedChunks = 0;
       let liveSocketError = false;
+      let liveProviderUnavailable = false;
       let liveSocketOpened = false;
       let liveSocketOpenTimer = null;
       if (storedSession.access_token) {
@@ -1063,12 +1064,17 @@ document.addEventListener('click', async e => {
         if (liveSocket?.readyState === WebSocket.OPEN && !liveSocketError) {
           liveSocket.send(liveBlob);
           streamedChunks += 1;
-        } else if (storedSession.access_token && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN || liveSocketError)) {
+        } else if (storedSession.access_token && !liveProviderUnavailable && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN || liveSocketError)) {
           const form = new FormData();
           form.append('file', liveBlob, 'live-segment.webm');
           form.append('session_id', liveSessionId);
           form.append('language', 'auto');
-          liveFallbackRequests.push(api('/api/transcription/batch', {method:'POST', body:form}).catch(() => null));
+          liveFallbackRequests.push(api('/api/transcription/batch', {method:'POST', body:form}).catch(error => {
+            liveProviderUnavailable = true;
+            liveSocketError = true;
+            notify(error.message || 'Live transcription is temporarily unavailable');
+            return null;
+          }));
         }
       };
       recorder.onstop = async () => {
@@ -1077,6 +1083,11 @@ document.addEventListener('click', async e => {
         if (liveFallbackRequests.length) {
           await Promise.all(liveFallbackRequests);
           if (liveSocket?.readyState < WebSocket.CLOSING) liveSocket.close();
+          if (liveProviderUnavailable) {
+            if (status) status.textContent = 'Audio captured · transcription unavailable';
+            notify('Audio was captured, but Vertex AI transcription quota is currently unavailable.');
+            return;
+          }
           state.data = await api('/api/dashboard');
           if (status) status.textContent = 'Live transcript ready';
           const streamedNote = streamedChunks ? ` and ${streamedChunks} live` : '';
