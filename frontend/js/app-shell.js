@@ -2,6 +2,7 @@ const state = { view: 'landing', data: null, authenticated: false, authMode: 'lo
 window.selectAuthMode = kind => { state.authMode = kind === 'register' ? 'register' : 'login'; state.view = 'auth'; render(); };
 let transcriptRefreshTimer = null;
 let audienceRefreshTimer = null;
+let attendeeTranscriptRefreshTimer = null;
 const app = document.querySelector('#app');
 const toast = document.querySelector('#toast');
 
@@ -482,6 +483,11 @@ document.addEventListener('submit', async event => {
     integrationsModal();
   } catch (error) { notify(error.message); }
 }, true);
+document.addEventListener('change', event => {
+  const select = event.target.closest('#attendee-live-language');
+  if (!select) return;
+  translateAttendeeLiveRows(state.attendeeLiveRows || []);
+}, true);
 document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!['help', 'notifications'].includes(action)) return;
@@ -931,7 +937,7 @@ document.addEventListener('click', async e => {
         const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
         liveSocket = new WebSocket(`${protocol}://${location.host}/api/ws/capture/${encodeURIComponent(liveSessionId)}?token=${encodeURIComponent(storedSession.access_token)}`);
         liveSocket.onopen = () => { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Listening · live bridge'; };
-        liveSocket.onmessage = event => { try { const message = JSON.parse(event.data); if (message.type === 'capture') { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Live transcript'; } if (message.type === 'error') liveSocketError = true; } catch (_) {} };
+        liveSocket.onmessage = event => { try { const message = JSON.parse(event.data); if (message.type === 'capture') { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Live transcript'; } if (message.type === 'error') { liveSocketError = true; notify(message.detail || 'Live transcription failed'); } } catch (_) {} };
         liveSocket.onerror = () => { liveSocketError = true; };
         liveSocket.onclose = () => { window.__captureLiveSocket = null; };
         window.__captureLiveSocket = liveSocket;
@@ -968,7 +974,7 @@ document.addEventListener('click', async e => {
         }
       };
       window.__captureRecorder = recorder;
-      recorder.start(1000);
+      recorder.start(4000);
       await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/start`, {method:'POST'}).catch(() => null);
       document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
@@ -1151,6 +1157,55 @@ function mountAttendeeInteractions() {
   if (document.querySelector('.attendee-interactions')) return;
   mountAttendeePersonalization();
   document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-interactions"><div class="attendee-interaction-card"><div class="eyebrow">Audience voice</div><h2>Ask the room</h2><p>Share a question with the organizer. You can stay anonymous.</p><form id="question-form"><textarea name="body" rows="3" required placeholder="What would you like the speaker to answer?"></textarea><label class="check-row"><input type="checkbox" name="anonymous" checked> Ask anonymously</label><button class="btn lime">Submit question ↗</button></form><div id="question-status" class="muted"></div></div><div class="attendee-interaction-card"><div class="eyebrow">Close the loop</div><h2>Rate this session</h2><p>Your feedback helps the event team improve the next room.</p><form id="feedback-form"><div class="rating-row"><label>Speaker<select name="speaker_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label><label>Content<select name="content_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label><label>Session<select name="session_rating"><option value="">—</option><option value="5">5 · Excellent</option><option value="4">4 · Good</option><option value="3">3 · Okay</option><option value="2">2 · Needs work</option><option value="1">1 · Poor</option></select></label></div><textarea name="comment" rows="3" placeholder="Optional feedback"></textarea><button class="btn purple">Send feedback ↗</button></form></div></section>`);
+}
+const attendeeLanguageChoices = ['English','Spanish','French','German','Italian','Portuguese','Dutch','Japanese','Korean','Chinese','Hindi','Tamil','Sinhala','Arabic','Turkish','Russian','Indonesian','Malay','Thai','Vietnamese'];
+function attendeeLanguageOptions() { return attendeeLanguageChoices.map(language => `<option value="${esc(language)}">${esc(language)}</option>`).join('') + '<option value="__custom__">Other language…</option>'; }
+function renderAttendeeLiveRows(rows) {
+  const target = document.querySelector('#attendee-live-transcript');
+  if (!target) return;
+  const ordered = (rows || []).slice(-12);
+  target.innerHTML = ordered.length ? ordered.map(row => `<article class="attendee-live-line"><time>${row.created_at ? new Date(row.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'LIVE'}</time><p>${esc(row.text || '')}</p></article>`).join('') : '<p class="muted">Waiting for the organizer to start speaking…</p>';
+}
+async function translateAttendeeLiveRows(rows) {
+  const output = document.querySelector('#attendee-live-translation');
+  const select = document.querySelector('#attendee-live-language');
+  const status = document.querySelector('#attendee-live-status');
+  if (!output || !select) return;
+  let language = select.value;
+  if (language === '__custom__') {
+    const custom = window.prompt('Enter the language you want to read:', 'Bengali');
+    if (!custom?.trim()) { select.value = 'English'; return; }
+    language = custom.trim();
+  }
+  if (language === 'English') { output.innerHTML = ''; if (status) status.textContent = 'Original transcript'; return; }
+  const source = (rows || []).slice(-12).map(row => row.text || '').filter(Boolean).join('\n');
+  if (!source) { output.innerHTML = '<span class="muted">Translation will appear when speech is captured.</span>'; return; }
+  if (status) status.textContent = `Translating to ${language}…`;
+  try {
+    const result = await api(attendeeApi('/api/ai/translate'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:source, targetLanguage:language, session_id:activeSessionId()})});
+    output.innerHTML = `<div class="attendee-translation-label">${esc(language)} · live translation</div><p>${esc(result.output || '')}</p>`;
+    if (status) status.textContent = result.mode === 'fallback' ? 'Preview translation' : 'Updated just now';
+  } catch (error) { if (status) status.textContent = 'Translation unavailable'; output.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
+}
+async function refreshAttendeeLiveTranscript() {
+  if (state.view !== 'attendee') return;
+  try {
+    const rows = await api(attendeeApi(`/api/transcripts?session_id=${encodeURIComponent(activeSessionId())}`));
+    state.attendeeLiveRows = rows;
+    renderAttendeeLiveRows(rows);
+    const language = document.querySelector('#attendee-live-language')?.value;
+    const status = document.querySelector('#attendee-live-status');
+    if (status && (!language || language === 'English')) status.textContent = `Live sync · ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+    if (language && language !== 'English' && language !== '__custom__') await translateAttendeeLiveRows(rows);
+  } catch (_) { const status = document.querySelector('#attendee-live-status'); if (status) status.textContent = 'Waiting for live session data'; }
+}
+function mountAttendeeLiveTranscript() {
+  clearInterval(attendeeTranscriptRefreshTimer);
+  attendeeTranscriptRefreshTimer = null;
+  if (state.view !== 'attendee') return;
+  if (!document.querySelector('.attendee-live-panel')) document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-live-panel"><div class="attendee-live-panel-head"><div><div class="eyebrow">LIVE LANGUAGE LAYER</div><h2>Read the room as it happens</h2><p>Speech from the organizer’s live session appears here. Choose any language for an instant attendee translation.</p></div><label>Read in<select id="attendee-live-language" aria-label="Choose live translation language">${attendeeLanguageOptions()}</select></label></div><div id="attendee-live-status" class="attendee-live-status">Connecting to live session…</div><div id="attendee-live-transcript" class="attendee-live-transcript"><p class="muted">Waiting for the organizer to start speaking…</p></div><div id="attendee-live-translation" class="attendee-live-translation"></div></section>`);
+  refreshAttendeeLiveTranscript();
+  attendeeTranscriptRefreshTimer = setInterval(refreshAttendeeLiveTranscript, 4000);
 }
 function mountTranscriptData() {
   if (state.view !== 'transcript') return;
@@ -1471,7 +1526,7 @@ document.addEventListener('submit', async event => {
   } catch (error) { notify(error.message); }
 }, true);
 const baseRender = render;
-render = function wrappedRender() { baseRender(); syncEventChrome(); mountQrDownload(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountTranscriptData(); mountLiveTranscriptSync(); mountFilesView(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
+render = function wrappedRender() { baseRender(); syncEventChrome(); mountQrDownload(); mountLiveMetrics(); mountAnalyticsView(); mountEventIntelligence(); if (state.view === 'attendee') { mountAttendeeSessionPicker(); mountAttendeeInteractions(); } mountAttendeeLiveTranscript(); mountTranscriptData(); mountLiveTranscriptSync(); mountFilesView(); mountAssetLibrary(); mountReportStudio(); mountTakeawayPanel(); mountBrandKit(); mountOrganizerAudience(); mountAnalystPanel(); mountSearchPanel(); mountTopicCloud(); mountAttendeeTakeaways(); mountPublishedContent(); mountAudienceData(); mountAudienceRealtime(); mountAttendeeTabs(); mountAttendeeSummary(); mountTranscriptActions(); mountSessionShareLinks(); };
 document.addEventListener('click', async event => {
   const access = event.target.closest('[data-file-access]');
   if (access) {
