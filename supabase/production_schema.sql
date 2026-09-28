@@ -24,6 +24,13 @@ create table if not exists public.email_verification_codes (
 );
 create index if not exists email_verification_codes_email_idx on public.email_verification_codes (email, created_at desc);
 alter table public.email_verification_codes enable row level security;
+create table if not exists public.password_reset_tokens (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
+  email text not null, token_hash text not null, expires_at timestamptz not null,
+  used_at timestamptz, created_at timestamptz not null default now()
+);
+create index if not exists password_reset_tokens_hash_idx on public.password_reset_tokens (token_hash);
+alter table public.password_reset_tokens enable row level security;
 create table if not exists public.organization_members (
   organization_id uuid references public.organizations(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete cascade,

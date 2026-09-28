@@ -39,6 +39,7 @@ class Settings:
     brevo_sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
     brevo_sender_name = os.getenv("BREVO_SENDER_NAME", "Eventora Global")
     brevo_verification_expiry_minutes = int(os.getenv("BREVO_VERIFICATION_EXPIRY_MINUTES", "15"))
+    public_app_url = os.getenv("PUBLIC_APP_URL", "")
     supabase_storage_key = supabase_service_role_key
     supabase_storage_bucket = os.getenv("SUPABASE_STORAGE_BUCKET", "event-media")
     data_dir = Path(os.getenv("DATA_DIR", str(ROOT_DIR / "data")))

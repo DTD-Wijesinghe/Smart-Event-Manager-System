@@ -147,6 +147,7 @@ async function load() {
   state.authenticated = Boolean(localStorage.getItem('smart-event-session'));
   const recoveryParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   const recoveryToken = recoveryParams.get('access_token') || new URLSearchParams(location.search).get('access_token');
+  const brevoResetToken = recoveryParams.get('reset_token') || new URLSearchParams(location.search).get('reset_token');
   const callbackType = recoveryParams.get('type');
   const callbackAccessToken = recoveryParams.get('access_token');
   const callbackRefreshToken = recoveryParams.get('refresh_token');
@@ -161,6 +162,13 @@ async function load() {
   }
   if (recoveryToken && (recoveryParams.get('type') === 'recovery' || location.hash.includes('type=recovery'))) {
     state.resetToken = recoveryToken;
+    state.authMode = 'reset';
+    state.view = 'auth';
+    render();
+    return;
+  }
+  if (brevoResetToken) {
+    state.resetToken = brevoResetToken;
     state.authMode = 'reset';
     state.view = 'auth';
     render();
@@ -834,7 +842,7 @@ document.addEventListener('submit', async event => {
   if (fields.password !== fields.confirm) return notify('Passwords do not match');
   if (!state.resetToken) return notify('This recovery link is missing or expired');
   try {
-    await api('/api/auth/reset-password', {method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${state.resetToken}`}, body:JSON.stringify({password:fields.password})});
+    await api('/api/auth/reset-password', {method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${state.resetToken}`}, body:JSON.stringify({password:fields.password, reset_token:state.resetToken})});
     state.resetToken = '';
     state.authMode = 'login';
     state.view = 'auth';

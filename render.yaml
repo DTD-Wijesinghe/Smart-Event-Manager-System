@@ -48,3 +48,5 @@ services:
         value: Eventora Global
       - key: BREVO_VERIFICATION_EXPIRY_MINUTES
         value: '15'
+      - key: PUBLIC_APP_URL
+        value: https://smart-event-manager-system.onrender.com

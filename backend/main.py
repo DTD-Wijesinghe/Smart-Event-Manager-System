@@ -266,6 +266,7 @@ class RefreshRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     password: str
+    reset_token: str | None = None
 
 
 class InvitationRequest(BaseModel):
@@ -474,6 +475,10 @@ def _verification_hash(email: str, code: str) -> str:
     return hmac.new(settings.demo_session_secret.encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
+def _reset_token_hash(token: str) -> str:
+    return hmac.new(settings.demo_session_secret.encode(), token.encode(), hashlib.sha256).hexdigest()
+
+
 def _verification_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
@@ -535,6 +540,75 @@ def _verification_row(email: str) -> dict | None:
 def _mark_verification_used(row_id: str) -> None:
     httpx.patch(
         f"{settings.supabase_url}/rest/v1/email_verification_codes?id=eq.{row_id}",
+        headers={**_service_auth_headers(), "Prefer": "return=minimal"},
+        json={"used_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+        timeout=20,
+    )
+
+
+def _find_supabase_user(email: str) -> dict | None:
+    response = httpx.get(
+        f"{settings.supabase_url}/auth/v1/admin/users?per_page=1000&page=1",
+        headers=_service_auth_headers(),
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=503, detail="Supabase users could not be checked")
+    users = response.json().get("users", []) if isinstance(response.json(), dict) else []
+    return next((user for user in users if str(user.get("email", "")).lower() == email.lower()), None)
+
+
+def _send_brevo_reset(email: str, token: str, base_url: str) -> None:
+    link = f"{base_url.rstrip('/')}/#reset_token={quote(token, safe='')}"
+    payload = {
+        "sender": {"email": settings.brevo_sender_email, "name": settings.brevo_sender_name},
+        "to": [{"email": email}],
+        "subject": "Reset your Eventora Global password",
+        "htmlContent": (
+            "<div style=\"font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1b1c2d\">"
+            "<h1>Reset your Eventora Global password</h1>"
+            f"<p>Use the button below to choose a new password. This link expires in {settings.brevo_verification_expiry_minutes} minutes.</p>"
+            f"<p><a href=\"{link}\" style=\"display:inline-block;background:#7568f3;color:#fff;padding:14px 22px;border-radius:8px;text-decoration:none;font-weight:700\">Reset password</a></p>"
+            "<p>If you did not request this, you can ignore this email.</p></div>"
+        ),
+    }
+    response = httpx.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={"api-key": settings.brevo_api_key, "accept": "application/json", "content-type": "application/json"},
+        json=payload,
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=502, detail="Brevo could not send the password reset email")
+
+
+def _save_reset_token(user_id: str, email: str, token: str) -> None:
+    expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + settings.brevo_verification_expiry_minutes * 60))
+    response = httpx.post(
+        f"{settings.supabase_url}/rest/v1/password_reset_tokens",
+        headers={**_service_auth_headers(), "Prefer": "return=minimal"},
+        json={"user_id": user_id, "email": email, "token_hash": _reset_token_hash(token), "expires_at": expires},
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=503, detail="Password reset storage is not ready. Run the Supabase migration first")
+
+
+def _reset_row(token: str) -> dict | None:
+    response = httpx.get(
+        f"{settings.supabase_url}/rest/v1/password_reset_tokens?token_hash=eq.{quote(_reset_token_hash(token), safe='')}&used_at=is.null&select=*&limit=1",
+        headers=_service_auth_headers(),
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=503, detail="Password reset storage is not available")
+    rows = response.json()
+    return rows[0] if rows else None
+
+
+def _mark_reset_used(row_id: str) -> None:
+    httpx.patch(
+        f"{settings.supabase_url}/rest/v1/password_reset_tokens?id=eq.{row_id}",
         headers={**_service_auth_headers(), "Prefer": "return=minimal"},
         json={"used_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
         timeout=20,
@@ -629,7 +703,17 @@ def login(request: AuthRequest) -> dict:
 
 
 @app.post(f"{settings.api_prefix}/auth/forgot-password")
-def forgot_password(request: RecoveryRequest) -> dict:
+def forgot_password(request: RecoveryRequest, http_request: Request) -> dict:
+    if _brevo_enabled():
+        email = request.email.strip().lower()
+        user = _find_supabase_user(email)
+        # Do not reveal whether an address exists.
+        if user:
+            token = secrets.token_urlsafe(32)
+            _save_reset_token(str(user["id"]), email, token)
+            base_url = settings.public_app_url or str(http_request.base_url).rstrip("/")
+            _send_brevo_reset(email, token, base_url)
+        return {"ok": True, "message": "If the email exists, a password reset link is on its way"}
     if settings.supabase_url and settings.supabase_anon_key:
         response = httpx.post(f"{settings.supabase_url}/auth/v1/recover", headers=_auth_headers(), json={"email": request.email}, timeout=20)
         if not response.is_success:
@@ -681,6 +765,20 @@ def refresh_session(request: RefreshRequest) -> dict:
 def reset_password(request: ResetPasswordRequest, authorization: str | None = Header(default=None)) -> dict:
     if len(request.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if request.reset_token and _brevo_enabled():
+        row = _reset_row(request.reset_token)
+        if not row or row.get("expires_at", "") <= time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()):
+            raise HTTPException(status_code=401, detail="Password reset link is invalid or expired")
+        response = httpx.put(
+            f"{settings.supabase_url}/auth/v1/admin/users/{row['user_id']}",
+            headers=_service_auth_headers(),
+            json={"password": request.password},
+            timeout=20,
+        )
+        if not response.is_success:
+            raise HTTPException(status_code=502, detail="Password could not be updated")
+        _mark_reset_used(str(row["id"]))
+        return {"mode": "supabase", "ok": True, "message": "Password updated"}
     if not settings.supabase_url or not settings.supabase_anon_key:
         token = (authorization or "").removeprefix("Bearer ").strip()
         email = demo_store.setdefault("auth_reset_tokens", {}).pop(token, None)
