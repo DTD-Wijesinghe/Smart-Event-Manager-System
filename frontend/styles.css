@@ -250,3 +250,29 @@ input,select,textarea{min-width:0}
   .marketing .hero-copy h1 span{display:block}
   .marketing .landing-section-head h2{font-size:clamp(40px,11vw,64px)}
 }
+
+/* Form controls must use the application type scale instead of browser defaults. */
+input,select,textarea{box-sizing:border-box;max-width:100%;min-width:0;font:inherit;color:var(--ink);line-height:1.45}
+textarea{display:block;width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:#fafaf7;resize:vertical;overflow-wrap:anywhere}
+.analyst-panel,.search-panel{min-width:0;overflow:hidden}
+.analyst-panel .card-head>div,.search-panel .card-head>div{min-width:0;flex:1 1 auto}
+.analyst-panel .card-head h2,.analyst-panel .card-head p,.search-panel .card-head h2,.search-panel .card-head p{overflow-wrap:anywhere}
+.analyst-panel .capture-form-row,.search-panel .capture-form-row{grid-template-columns:minmax(0,1fr) auto!important}
+.analyst-panel .capture-form-row>.btn,.search-panel .capture-form-row>.btn{width:auto!important;min-width:132px!important;white-space:nowrap!important}
+.analyst-history,.search-panel .insight-list{min-width:0;overflow:hidden}
+.analyst-conversation{min-width:0;max-width:100%}
+.analyst-conversation strong{min-width:0;overflow-wrap:anywhere;white-space:normal;text-overflow:clip}
+.topbar,.crumb,.top-actions{min-width:0}
+.crumb strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:800px){
+  .analyst-panel .capture-form-row,.search-panel .capture-form-row{grid-template-columns:1fr!important}
+  .analyst-panel .capture-form-row>.btn,.search-panel .capture-form-row>.btn{width:100%!important;min-width:0!important}
+  .analyst-panel .card-head,.search-panel .card-head{align-items:flex-start}
+}
+@media(max-width:520px){
+  .topbar{height:auto;min-height:64px;padding:12px 14px;gap:10px}
+  .top-actions{gap:9px}
+  .top-actions .auth-link,.top-actions .search-launch span{display:none}
+  .page{padding:18px 12px}
+  .card-head{padding:15px 14px}
+}
