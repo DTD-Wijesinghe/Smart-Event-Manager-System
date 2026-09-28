@@ -895,6 +895,15 @@ document.addEventListener('submit', async event => {
     notify('Password updated. You can now log in.');
   } catch (error) { notify(error.message); }
 }, true);
+const browserSpeechLanguages = [['en-US','English'],['si-LK','Sinhala'],['ta-IN','Tamil'],['es-ES','Spanish'],['fr-FR','French'],['de-DE','German'],['ja-JP','Japanese'],['ar-SA','Arabic'],['zh-CN','Chinese'],['hi-IN','Hindi']];
+function mountCaptureSpeechLanguage() {
+  if (document.querySelector('#capture-language')) return;
+  const controls = document.querySelector('.capture-controls');
+  if (!controls) return;
+  const options = browserSpeechLanguages.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  controls.insertAdjacentHTML('afterend', `<label class="capture-language-field">Speech language<select id="capture-language" aria-label="Speech language">${options}</select></label>`);
+}
+
 document.addEventListener('click', async e => {
   const button = e.target.closest('[data-action="download-qr"]');
   if (!button) return;
@@ -951,6 +960,7 @@ document.addEventListener('click', async e => {
     history.pushState({view: 'capture'}, '', `${location.pathname}${location.search}#capture`);
     e.stopImmediatePropagation();
     app.innerHTML = captureView();
+    mountCaptureSpeechLanguage();
     document.body.classList.remove('marketing');
     document.body.classList.add('workspace-view');
     document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item === button));
@@ -981,6 +991,42 @@ document.addEventListener('click', async e => {
         liveSocket.onerror = () => { liveSocketError = true; };
         liveSocket.onclose = () => { window.__captureLiveSocket = null; };
         window.__captureLiveSocket = liveSocket;
+      }
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      let liveRecognition = null;
+      let browserSpeechCount = 0;
+      const sendBrowserTranscript = text => {
+        const language = document.querySelector('#capture-language')?.value || 'en-US';
+        const payload = {text, language, speaker: 'Live speaker', session_id: liveSessionId};
+        browserSpeechCount += 1;
+        window.__captureSpeechCount = browserSpeechCount;
+        const status = document.querySelector('#capture-status');
+        if (status) status.textContent = 'Live transcript';
+        if (liveSocket?.readyState === WebSocket.OPEN && !liveSocketError) {
+          liveSocket.send(JSON.stringify(payload));
+        } else if (storedSession.access_token) {
+          api('/api/capture/text', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}).catch(() => null);
+        }
+      };
+      if (SpeechRecognition) {
+        liveRecognition = new SpeechRecognition();
+        liveRecognition.continuous = true;
+        liveRecognition.interimResults = false;
+        liveRecognition.maxAlternatives = 1;
+        liveRecognition.lang = document.querySelector('#capture-language')?.value || 'en-US';
+        liveRecognition.onresult = event => {
+          const text = [...event.results].slice(event.resultIndex).map(result => result[0]?.transcript || '').join(' ').trim();
+          if (text) sendBrowserTranscript(text);
+        };
+        liveRecognition.onerror = event => {
+          if (!['no-speech', 'aborted'].includes(event.error)) notify(`Browser speech recognition: ${event.error}`);
+        };
+        liveRecognition.onend = () => {
+          if (window.__captureRecorder?.state === 'recording' && !window.__captureStopping) {
+            try { liveRecognition.start(); } catch (_) {}
+          }
+        };
+        window.__captureSpeechRecognition = liveRecognition;
       }
       const recorder = new MediaRecorder(stream);
       recorder.ondataavailable = event => {
@@ -1039,8 +1085,15 @@ document.addEventListener('click', async e => {
           notify(error.message);
         }
       };
+      window.__captureStopping = false;
+      window.__captureSpeechCount = 0;
       window.__captureRecorder = recorder;
       recorder.start(4000);
+      if (liveRecognition) {
+        try { liveRecognition.start(); } catch (_) {}
+      } else {
+        notify('Browser speech recognition is unavailable; configure cloud transcription or use Live text bridge');
+      }
       await api(`/api/sessions/${encodeURIComponent(activeSessionId())}/start`, {method:'POST'}).catch(() => null);
       document.querySelector('#capture-status').textContent = 'Listening';
       document.querySelector('[data-capture-action="start"]').disabled = true;
@@ -1078,6 +1131,9 @@ document.addEventListener('click', async e => {
     document.querySelector('#capture-status').textContent = muted ? 'Muted' : 'Listening';
     notify(muted ? 'Microphone muted' : 'Microphone unmuted');
   } else if (captureAction === 'stop') {
+    window.__captureStopping = true;
+    try { window.__captureSpeechRecognition?.stop(); } catch (_) {}
+    window.__captureSpeechRecognition = null;
     if (['recording', 'paused'].includes(window.__captureRecorder?.state)) window.__captureRecorder.stop();
     window.__captureStream?.getTracks().forEach(track => track.stop());
     window.__captureStream = null;
