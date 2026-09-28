@@ -14,6 +14,16 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade, full_name text, avatar_url text,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+-- Server-only email verification codes used when Brevo is configured.
+-- The FastAPI service accesses this table with SUPABASE_SERVICE_ROLE_KEY;
+-- browser clients must never read or write it.
+create table if not exists public.email_verification_codes (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
+  email text not null, code_hash text not null, expires_at timestamptz not null,
+  used_at timestamptz, created_at timestamptz not null default now()
+);
+create index if not exists email_verification_codes_email_idx on public.email_verification_codes (email, created_at desc);
+alter table public.email_verification_codes enable row level security;
 create table if not exists public.organization_members (
   organization_id uuid references public.organizations(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete cascade,

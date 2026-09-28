@@ -52,6 +52,25 @@ random bearer sessions; arbitrary passwords are rejected. In Supabase mode,
 organizer API requests are checked against the Supabase user session before
 the repository is reached. Public attendee share links remain readable.
 
+## Brevo email verification
+
+To send registration verification codes through Brevo instead of Supabase's
+default email sender, run `supabase/production_schema.sql` in the Supabase SQL
+Editor, then add these protected Render environment variables:
+
+```env
+BREVO_API_KEY=your-brevo-api-key
+BREVO_SENDER_EMAIL=verified-sender@your-domain.com
+BREVO_SENDER_NAME=Eventora Global
+BREVO_VERIFICATION_EXPIRY_MINUTES=15
+```
+
+The sender address must be verified in Brevo. The backend requires
+`SUPABASE_SERVICE_ROLE_KEY` for this flow because it creates the unconfirmed
+Supabase user and confirms the user only after the Brevo code is accepted.
+Never place `BREVO_API_KEY` or `SUPABASE_SERVICE_ROLE_KEY` in frontend code,
+GitHub, or `.env.example` values.
+
 ## Gemini API integration
 
 This project uses Vertex AI service-account authentication. Copy `.env.example` to `.env`, set `VERTEX_SERVICE_ACCOUNT_JSON` to the local credential file, set `GCP_PROJECT`, and set `GCP_LOCATION`. Keep the JSON file out of Git. A typical setup is:
@@ -72,7 +91,7 @@ The key is never sent to the browser. The endpoints are `POST /api/ai/summarize`
 ## API surface
 
 - `GET /api/health`
-- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/forgot-password`
+- `POST /api/auth/register`, `POST /api/auth/verify-email`, `POST /api/auth/login`, `POST /api/auth/forgot-password`
 - `POST /api/auth/logout`
 - `POST /api/auth/refresh`
 - `POST /api/auth/reset-password` - complete a Supabase recovery-link password update with the recovery bearer token

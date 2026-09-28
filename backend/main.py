@@ -18,6 +18,7 @@ import base64
 import json
 from html import escape as html_escape
 from typing import Any
+from urllib.parse import quote
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -250,6 +251,11 @@ class AuthRequest(BaseModel):
     password: str
 
 
+class EmailVerificationRequest(BaseModel):
+    email: str
+    code: str
+
+
 class RecoveryRequest(BaseModel):
     email: str
 
@@ -331,7 +337,7 @@ async def protect_api(request, call_next):
     Public share links and auth bootstrap routes stay accessible.
     """
     path = request.url.path
-    public = {f"{settings.api_prefix}/health"} | {f"{settings.api_prefix}/auth/{name}" for name in ("register", "login", "forgot-password", "refresh", "reset-password", "logout")}
+    public = {f"{settings.api_prefix}/health"} | {f"{settings.api_prefix}/auth/{name}" for name in ("register", "login", "verify-email", "forgot-password", "refresh", "reset-password", "logout")}
     relative = path.removeprefix(f"{settings.api_prefix}/")
     method = request.method.upper()
     rate_key = _rate_limit_key(request, relative) if path.startswith(f"{settings.api_prefix}/") else None
@@ -446,6 +452,95 @@ def _auth_headers() -> dict[str, str]:
     return {"apikey": settings.supabase_anon_key or settings.supabase_key, "Content-Type": "application/json"}
 
 
+def _brevo_enabled() -> bool:
+    return bool(
+        settings.supabase_url
+        and settings.supabase_service_role_key
+        and settings.brevo_api_key
+        and settings.brevo_sender_email
+    )
+
+
+def _service_auth_headers() -> dict[str, str]:
+    return {
+        "apikey": settings.supabase_service_role_key,
+        "Authorization": f"Bearer {settings.supabase_service_role_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _verification_hash(email: str, code: str) -> str:
+    value = f"{email.strip().lower()}:{code}"
+    return hmac.new(settings.demo_session_secret.encode(), value.encode(), hashlib.sha256).hexdigest()
+
+
+def _verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _send_brevo_verification(email: str, code: str) -> None:
+    expiry = settings.brevo_verification_expiry_minutes
+    payload = {
+        "sender": {"email": settings.brevo_sender_email, "name": settings.brevo_sender_name},
+        "to": [{"email": email}],
+        "subject": "Your Eventora Global verification code",
+        "htmlContent": (
+            "<div style=\"font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1b1c2d\">"
+            f"<h1 style=\"margin-bottom:8px\">Verify your Eventora Global account</h1>"
+            "<p>Enter this code in the registration window to verify your email address:</p>"
+            f"<div style=\"font-size:32px;font-weight:800;letter-spacing:8px;background:#f4f1ea;padding:18px;text-align:center\">{code}</div>"
+            f"<p>This code expires in {expiry} minutes. If you did not create this account, you can ignore this email.</p>"
+            "</div>"
+        ),
+    }
+    response = httpx.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={"api-key": settings.brevo_api_key, "accept": "application/json", "content-type": "application/json"},
+        json=payload,
+        timeout=20,
+    )
+    if not response.is_success:
+        try:
+            detail = response.json().get("message") or response.json().get("code")
+        except ValueError:
+            detail = None
+        raise HTTPException(status_code=502, detail=f"Brevo could not send the verification email: {detail or 'request failed'}")
+
+
+def _save_verification(user_id: str, email: str, code: str) -> None:
+    expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + settings.brevo_verification_expiry_minutes * 60))
+    response = httpx.post(
+        f"{settings.supabase_url}/rest/v1/email_verification_codes",
+        headers={**_service_auth_headers(), "Prefer": "return=minimal"},
+        json={"user_id": user_id, "email": email, "code_hash": _verification_hash(email, code), "expires_at": expires},
+        timeout=20,
+    )
+    if not response.is_success:
+        detail = response.text[:240]
+        raise HTTPException(status_code=503, detail=f"Verification storage is not ready. Run the Supabase migration first. {detail}")
+
+
+def _verification_row(email: str) -> dict | None:
+    response = httpx.get(
+        f"{settings.supabase_url}/rest/v1/email_verification_codes?email=eq.{quote(email, safe='')}&used_at=is.null&select=*&order=created_at.desc&limit=1",
+        headers=_service_auth_headers(),
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=503, detail="Verification storage is not available")
+    rows = response.json()
+    return rows[0] if rows else None
+
+
+def _mark_verification_used(row_id: str) -> None:
+    httpx.patch(
+        f"{settings.supabase_url}/rest/v1/email_verification_codes?id=eq.{row_id}",
+        headers={**_service_auth_headers(), "Prefer": "return=minimal"},
+        json={"used_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
+        timeout=20,
+    )
+
+
 @app.post(f"{settings.api_prefix}/auth/register", status_code=201)
 def register(request: AuthRequest) -> dict:
     if len(request.password) < 8: raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
@@ -456,6 +551,30 @@ def register(request: AuthRequest) -> dict:
             raise HTTPException(status_code=409, detail="An account with this email already exists")
         users.append({"id": f"user-demo-{len(users) + 1:04d}", "email": email, "password_hash": _demo_password(request.password), "role": "organization_admin"})
         return {"mode": "demo", "session": _demo_session(email)}
+    if _brevo_enabled():
+        email = request.email.strip().lower()
+        create_response = httpx.post(
+            f"{settings.supabase_url}/auth/v1/admin/users",
+            headers=_service_auth_headers(),
+            json={"email": email, "password": request.password, "email_confirm": False, "user_metadata": {"role": "organization_admin"}},
+            timeout=20,
+        )
+        if not create_response.is_success:
+            try:
+                detail = create_response.json().get("msg") or create_response.json().get("message") or create_response.json().get("error_description")
+            except ValueError:
+                detail = None
+            raise HTTPException(status_code=409 if create_response.status_code in {400, 422} else create_response.status_code, detail=detail or "An account with this email may already exist")
+        user = create_response.json().get("user") or create_response.json()
+        code = _verification_code()
+        try:
+            _save_verification(str(user["id"]), email, code)
+            _send_brevo_verification(email, code)
+        except Exception:
+            # Avoid leaving an unusable unverified account if storage or email fails.
+            httpx.delete(f"{settings.supabase_url}/auth/v1/admin/users/{user['id']}", headers=_service_auth_headers(), timeout=20)
+            raise
+        return {"mode": "supabase", "session": None, "requires_verification": True, "email": email, "message": "Verification code sent. Check your email to continue."}
     response = httpx.post(f"{settings.supabase_url}/auth/v1/signup", headers=_auth_headers(), json={"email": request.email, "password": request.password}, timeout=20)
     if not response.is_success:
         detail = response.json().get("msg") or response.json().get("error_description") or "Registration failed"
@@ -465,6 +584,33 @@ def register(request: AuthRequest) -> dict:
     if not session or not session.get("access_token"):
         return {"mode": "supabase", "session": None, "requires_verification": True, "message": "Account created. Check your email to verify the account before logging in."}
     return {"mode": "supabase", "session": session}
+
+
+@app.post(f"{settings.api_prefix}/auth/verify-email")
+def verify_email(request: EmailVerificationRequest) -> dict:
+    if not _brevo_enabled():
+        raise HTTPException(status_code=503, detail="Brevo verification is not configured")
+    email = request.email.strip().lower()
+    code = request.code.strip()
+    if not re.fullmatch(r"\d{6}", code):
+        raise HTTPException(status_code=400, detail="Enter the 6-digit verification code")
+    row = _verification_row(email)
+    if not row:
+        raise HTTPException(status_code=400, detail="This verification code has expired or is invalid")
+    if row.get("expires_at", "") <= time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()):
+        raise HTTPException(status_code=400, detail="This verification code has expired. Register again to receive a new code")
+    if not hmac.compare_digest(row.get("code_hash", ""), _verification_hash(email, code)):
+        raise HTTPException(status_code=400, detail="That verification code is incorrect")
+    response = httpx.put(
+        f"{settings.supabase_url}/auth/v1/admin/users/{row['user_id']}",
+        headers=_service_auth_headers(),
+        json={"email_confirm": True},
+        timeout=20,
+    )
+    if not response.is_success:
+        raise HTTPException(status_code=502, detail="Email was checked, but the account could not be activated")
+    _mark_verification_used(str(row["id"]))
+    return {"ok": True, "message": "Email verified. You can now log in."}
 
 
 @app.post(f"{settings.api_prefix}/auth/login")

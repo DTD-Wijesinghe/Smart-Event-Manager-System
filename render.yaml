@@ -40,3 +40,11 @@ services:
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: event-media
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        value: Eventora Global
+      - key: BREVO_VERIFICATION_EXPIRY_MINUTES
+        value: '15'
