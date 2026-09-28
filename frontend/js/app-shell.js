@@ -1074,6 +1074,15 @@ document.addEventListener('click', async e => {
       recorder.onstop = async () => {
         const status = document.querySelector('#capture-status');
         if (!chunks.length) return notify('No audio was captured');
+        if (liveFallbackRequests.length) {
+          await Promise.all(liveFallbackRequests);
+          if (liveSocket?.readyState < WebSocket.CLOSING) liveSocket.close();
+          state.data = await api('/api/dashboard');
+          if (status) status.textContent = 'Live transcript ready';
+          const streamedNote = streamedChunks ? ` and ${streamedChunks} live` : '';
+          notify(`Live audio recovered through ${liveFallbackRequests.length} HTTP segment${liveFallbackRequests.length === 1 ? '' : 's'}${streamedNote}`);
+          return;
+        }
         if (liveSocket && streamedChunks && !liveSocketError) {
           await new Promise(resolve => setTimeout(resolve, 600));
           liveSocket.close();
@@ -1081,14 +1090,6 @@ document.addEventListener('click', async e => {
           state.data = await api('/api/dashboard');
           if (status) status.textContent = 'Live transcript ready';
           notify(`Live audio streamed through ${streamedChunks} capture chunk${streamedChunks === 1 ? '' : 's'}`);
-          return;
-        }
-        if (liveFallbackRequests.length) {
-          await Promise.all(liveFallbackRequests);
-          if (liveSocket?.readyState < WebSocket.CLOSING) liveSocket.close();
-          state.data = await api('/api/dashboard');
-          if (status) status.textContent = 'Live transcript ready';
-          notify(`Live audio recovered through ${liveFallbackRequests.length} HTTP segment${liveFallbackRequests.length === 1 ? '' : 's'}`);
           return;
         }
         if (liveSocket && liveSocket.readyState < WebSocket.CLOSING) liveSocket.close();
