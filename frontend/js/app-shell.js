@@ -983,13 +983,35 @@ document.addEventListener('click', async e => {
       let liveSocket = null;
       let streamedChunks = 0;
       let liveSocketError = false;
+      let liveSocketOpened = false;
+      let liveSocketOpenTimer = null;
       if (storedSession.access_token) {
         const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
         liveSocket = new WebSocket(`${protocol}://${location.host}/api/ws/capture/${encodeURIComponent(liveSessionId)}?token=${encodeURIComponent(storedSession.access_token)}`);
-        liveSocket.onopen = () => { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Listening · live bridge'; };
+        liveSocket.onopen = () => {
+          liveSocketOpened = true;
+          if (liveSocketOpenTimer) clearTimeout(liveSocketOpenTimer);
+          const status = document.querySelector('#capture-status');
+          if (status) status.textContent = 'Listening · live bridge';
+        };
         liveSocket.onmessage = event => { try { const message = JSON.parse(event.data); if (message.type === 'capture') { const status = document.querySelector('#capture-status'); if (status) status.textContent = 'Live transcript'; } if (message.type === 'error') { liveSocketError = true; notify(message.detail || 'Live transcription failed'); } } catch (_) {} };
         liveSocket.onerror = () => { liveSocketError = true; };
-        liveSocket.onclose = () => { window.__captureLiveSocket = null; };
+        liveSocket.onclose = () => {
+          if (liveSocketOpenTimer) clearTimeout(liveSocketOpenTimer);
+          if (!liveSocketOpened) liveSocketError = true;
+          window.__captureLiveSocket = null;
+        };
+        // Do not let MediaRecorder chunks disappear while a failed WebSocket
+        // remains stuck in CONNECTING. HTTP segment transcription is the
+        // reliable fallback when the live bridge cannot open promptly.
+        liveSocketOpenTimer = setTimeout(() => {
+          if (!liveSocketOpened) {
+            liveSocketError = true;
+            try { liveSocket.close(); } catch (_) {}
+            const status = document.querySelector('#capture-status');
+            if (status) status.textContent = 'Using reliable audio fallback';
+          }
+        }, 6000);
         window.__captureLiveSocket = liveSocket;
       }
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1041,7 +1063,7 @@ document.addEventListener('click', async e => {
         if (liveSocket?.readyState === WebSocket.OPEN && !liveSocketError) {
           liveSocket.send(liveBlob);
           streamedChunks += 1;
-        } else if (storedSession.access_token && liveSocketError) {
+        } else if (storedSession.access_token && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN || liveSocketError)) {
           const form = new FormData();
           form.append('file', liveBlob, 'live-segment.webm');
           form.append('session_id', liveSessionId);
