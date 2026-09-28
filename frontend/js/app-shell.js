@@ -966,6 +966,8 @@ document.addEventListener('click', async e => {
       window.__captureStream = stream;
       if (!window.MediaRecorder) return notify('Audio recording is unavailable in this browser');
       const chunks = [];
+      let liveHeaderChunk = null;
+      const liveFallbackRequests = [];
       const storedSession = JSON.parse(localStorage.getItem('smart-event-session') || '{}');
       const liveSessionId = activeSessionId();
       let liveSocket = null;
@@ -981,7 +983,25 @@ document.addEventListener('click', async e => {
         window.__captureLiveSocket = liveSocket;
       }
       const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = event => { if (!event.data.size) return; chunks.push(event.data); if (liveSocket?.readyState === WebSocket.OPEN && !liveSocketError) { liveSocket.send(event.data); streamedChunks += 1; } };
+      recorder.ondataavailable = event => {
+        if (!event.data.size) return;
+        chunks.push(event.data);
+        // MediaRecorder includes the WebM container header only in the first
+        // slice. Prefix later slices so every live request is independently
+        // decodable by the transcription provider.
+        const liveBlob = liveHeaderChunk ? new Blob([liveHeaderChunk, event.data], {type: recorder.mimeType || 'audio/webm'}) : event.data;
+        if (!liveHeaderChunk) liveHeaderChunk = event.data;
+        if (liveSocket?.readyState === WebSocket.OPEN && !liveSocketError) {
+          liveSocket.send(liveBlob);
+          streamedChunks += 1;
+        } else if (storedSession.access_token && liveSocketError) {
+          const form = new FormData();
+          form.append('file', liveBlob, 'live-segment.webm');
+          form.append('session_id', liveSessionId);
+          form.append('language', 'auto');
+          liveFallbackRequests.push(api('/api/transcription/batch', {method:'POST', body:form}).catch(() => null));
+        }
+      };
       recorder.onstop = async () => {
         const status = document.querySelector('#capture-status');
         if (!chunks.length) return notify('No audio was captured');
@@ -992,6 +1012,14 @@ document.addEventListener('click', async e => {
           state.data = await api('/api/dashboard');
           if (status) status.textContent = 'Live transcript ready';
           notify(`Live audio streamed through ${streamedChunks} capture chunk${streamedChunks === 1 ? '' : 's'}`);
+          return;
+        }
+        if (liveFallbackRequests.length) {
+          await Promise.all(liveFallbackRequests);
+          if (liveSocket?.readyState < WebSocket.CLOSING) liveSocket.close();
+          state.data = await api('/api/dashboard');
+          if (status) status.textContent = 'Live transcript ready';
+          notify(`Live audio recovered through ${liveFallbackRequests.length} HTTP segment${liveFallbackRequests.length === 1 ? '' : 's'}`);
           return;
         }
         if (liveSocket && liveSocket.readyState < WebSocket.CLOSING) liveSocket.close();

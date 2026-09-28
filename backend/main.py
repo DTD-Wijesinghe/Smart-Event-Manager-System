@@ -7,6 +7,7 @@
 from pathlib import Path
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
+import asyncio
 import re
 import uuid
 import logging
@@ -1936,7 +1937,10 @@ async def capture_socket(websocket: WebSocket, session_id: str) -> None:
             payload: dict[str, Any] = {}
             if audio:
                 try:
-                    result = transcribe(audio, "audio/webm", [])
+                    # The provider SDK is synchronous. Keep it off the event
+                    # loop so attendee polling and the WebSocket remain live
+                    # while a speech segment is being transcribed.
+                    result = await asyncio.to_thread(transcribe, audio, "audio/webm", [])
                     payload = {"text": result.get("transcript", ""), "model": result.get("model", "live-audio"), "language": result.get("language", "auto")}
                 except Exception as exc:
                     logger.exception("Live audio transcription failed: %s", exc)
@@ -1956,8 +1960,8 @@ async def capture_socket(websocket: WebSocket, session_id: str) -> None:
                 await websocket.send_json({"type": "error", "detail": "Capture text is required"})
                 continue
             capture = {"text": text, "model": payload.get("model", "live-bridge"), "language": payload.get("language", "auto"), "session_id": session_id, "speaker": payload.get("speaker", "Live speaker")}
-            saved = create_transcript(capture)
-            insight = create_insight(capture)
+            saved = await asyncio.to_thread(create_transcript, capture)
+            insight = await asyncio.to_thread(create_insight, capture)
             await websocket.send_json({"type": "capture", "transcript": saved, "insight": insight, "mode": storage_mode()})
     except WebSocketDisconnect:
         return
