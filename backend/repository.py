@@ -189,10 +189,27 @@ def upsert_attendee_preferences(payload: dict) -> dict:
     return existing or item
 
 
+def _resolve_share_link(token: str) -> dict | None:
+    links = list_items("share_links")
+    exact = next((item for item in links if item.get("token") == token), None)
+    if exact:
+        if exact.get("session_id"):
+            session_exists = any(item.get("id") == exact.get("session_id") for item in list_items("sessions"))
+            if not session_exists:
+                return next((item for item in links if item.get("event_id") == exact.get("event_id") and not item.get("session_id")), None)
+        return exact
+    marker = "-ses-"
+    if marker in token:
+        slug = token.rsplit(marker, 1)[0]
+        event = next((item for item in list_items("events") if str(item.get("slug") or "").strip().lower() == slug.lower()), None)
+        if event:
+            return next((item for item in links if item.get("event_id") == event.get("id") and not item.get("session_id")), None)
+    return None
+
+
 def get_share_link(token: str) -> dict | None:
     """Resolve an attendee portal token and increment its public view count."""
-    links = list_items("share_links")
-    link = next((item for item in links if item.get("token") == token), None)
+    link = _resolve_share_link(token)
     if not link:
         return None
     link["clicks"] = int(link.get("clicks") or 0) + 1
@@ -219,7 +236,7 @@ def share_link_allows(token: str | None, session_id: str | None = None, event_id
     """Validate a public portal token without incrementing its visit counter."""
     if not token:
         return False
-    link = next((item for item in list_items("share_links") if item.get("token") == token), None)
+    link = _resolve_share_link(token)
     if not link:
         return False
     if event_id and link.get("event_id") != event_id:
