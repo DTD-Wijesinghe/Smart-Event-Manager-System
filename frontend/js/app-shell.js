@@ -1246,7 +1246,7 @@ async function translateAttendeeLiveRows(rows) {
     if (state.attendeeLiveSpeech && state.attendeeLastSpokenSource !== source) {
       const newest = (rows || []).slice(-1)[0]?.text || '';
       if (newest) {
-        const spoken = await api(attendeeApi('/api/ai/translate'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:newest, targetLanguage:language, session_id:activeSessionId())});
+        const spoken = await api(attendeeApi('/api/ai/translate'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:newest, targetLanguage:language, session_id:activeSessionId()})});
         speakAttendeeText(spoken.output || newest, language);
       }
       state.attendeeLastSpokenSource = source;
