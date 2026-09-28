@@ -513,6 +513,13 @@ document.addEventListener('change', event => {
   translateAttendeeLiveRows(state.attendeeLiveRows || []);
 }, true);
 document.addEventListener('click', event => {
+  const liveAudio = event.target.closest('#attendee-live-speech-toggle');
+  if (liveAudio) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toggleAttendeeLiveSpeech();
+    return;
+  }
   const button = event.target.closest('[data-speak-text]');
   if (!button) return;
   event.preventDefault();
@@ -1207,6 +1214,13 @@ function speakAttendeeText(text, language = 'English') {
   utterance.rate = 0.96;
   window.speechSynthesis.speak(utterance);
 }
+function toggleAttendeeLiveSpeech() {
+  state.attendeeLiveSpeech = !state.attendeeLiveSpeech;
+  if (!state.attendeeLiveSpeech) window.speechSynthesis?.cancel();
+  const button = document.querySelector('#attendee-live-speech-toggle');
+  if (button) button.textContent = state.attendeeLiveSpeech ? '🔊 Live audio on' : '▶ Start live audio';
+  notify(state.attendeeLiveSpeech ? 'Live translation audio enabled' : 'Live translation audio paused');
+}
 async function translateAttendeeLiveRows(rows) {
   const output = document.querySelector('#attendee-live-translation');
   const select = document.querySelector('#attendee-live-language');
@@ -1229,6 +1243,14 @@ async function translateAttendeeLiveRows(rows) {
     const translated = result.output || '';
     output.innerHTML = `<div class="attendee-translation-label">${esc(language)} · live translation</div><p>${esc(translated)}</p><button type="button" class="btn purple listen-button" data-speak-text="${esc(translated)}" data-speak-language="${esc(language)}">▶ Listen to translation</button>`;
     state.attendeeTranslationKey = translationKey;
+    if (state.attendeeLiveSpeech && state.attendeeLastSpokenSource !== source) {
+      const newest = (rows || []).slice(-1)[0]?.text || '';
+      if (newest) {
+        const spoken = await api(attendeeApi('/api/ai/translate'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:newest, targetLanguage:language, session_id:activeSessionId())});
+        speakAttendeeText(spoken.output || newest, language);
+      }
+      state.attendeeLastSpokenSource = source;
+    }
     if (status) status.textContent = result.mode === 'fallback' ? 'Preview translation' : 'Updated just now';
   } catch (error) { if (status) status.textContent = 'Translation unavailable'; output.innerHTML = `<span class="muted">${esc(error.message)}</span>`; }
 }
@@ -1248,7 +1270,7 @@ function mountAttendeeLiveTranscript() {
   clearInterval(attendeeTranscriptRefreshTimer);
   attendeeTranscriptRefreshTimer = null;
   if (state.view !== 'attendee') return;
-  if (!document.querySelector('.attendee-live-panel')) document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-live-panel"><div class="attendee-live-panel-head"><div><div class="eyebrow">LIVE LANGUAGE LAYER</div><h2>Read the room as it happens</h2><p>Speech from the organizer’s live session appears here. Choose any language for an instant attendee translation.</p></div><label>Read in<select id="attendee-live-language" aria-label="Choose live translation language">${attendeeLanguageOptions()}</select></label></div><div id="attendee-live-status" class="attendee-live-status">Connecting to live session…</div><div id="attendee-live-transcript" class="attendee-live-transcript"><p class="muted">Waiting for the organizer to start speaking…</p></div><div id="attendee-live-translation" class="attendee-live-translation"></div></section>`);
+  if (!document.querySelector('.attendee-live-panel')) document.querySelector('.attendee-view')?.insertAdjacentHTML('beforeend', `<section class="attendee-live-panel"><div class="attendee-live-panel-head"><div><div class="eyebrow">LIVE LANGUAGE LAYER</div><h2>Read and listen as it happens</h2><p>Speech from the organizer’s live session appears here. Choose any language, then start live audio to hear each new translated segment.</p></div><div class="attendee-live-controls"><label>Read in<select id="attendee-live-language" aria-label="Choose live translation language">${attendeeLanguageOptions()}</select></label><button type="button" id="attendee-live-speech-toggle" class="btn purple">▶ Start live audio</button></div></div><div id="attendee-live-status" class="attendee-live-status">Connecting to live session…</div><div id="attendee-live-transcript" class="attendee-live-transcript"><p class="muted">Waiting for the organizer to start speaking…</p></div><div id="attendee-live-translation" class="attendee-live-translation"></div></section>`);
   refreshAttendeeLiveTranscript();
   attendeeTranscriptRefreshTimer = setInterval(refreshAttendeeLiveTranscript, 4000);
 }
